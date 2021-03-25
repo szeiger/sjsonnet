@@ -21,7 +21,7 @@ class Evaluator(parseCache: collection.mutable.Map[String, fastparse.Parsed[(Exp
                 val wd: Path,
                 importer: (Path, String) => Option[(Path, String)],
                 override val preserveOrder: Boolean = false,
-                strict: Boolean) extends EvalScope{
+                strict: Boolean) extends EvalScope {
   implicit def evalScope: EvalScope = this
 
   val loadedFileContents = mutable.Map.empty[Path, String]
@@ -30,64 +30,34 @@ class Evaluator(parseCache: collection.mutable.Map[String, fastparse.Parsed[(Exp
   val cachedImports = collection.mutable.Map.empty[Path, Val]
 
   val cachedImportedStrings = collection.mutable.Map.empty[Path, String]
+
   def visitExpr(expr: Expr)
-               (implicit scope: ValScope, fileScope: FileScope): Val = try expr match{
-    case Null(offset) => Val.Null(Position(offset))
-    case Parened(offset, inner) => visitExpr(inner)
-    case True(offset) => Val.True(Position(offset))
-    case False(offset) => Val.False(Position(offset))
-    case Self(offset) => scope.self0.getOrElse(Error.fail("Cannot use `self` outside an object", offset))
+               (implicit scope: ValScope, fileScope: FileScope): Val =
+    try expr.visit(this) catch Error.tryCatch(expr.offset)
 
-    case BinaryOp(offset, lhs, Expr.BinaryOp.`in`, Super(_)) =>
-      scope.super0 match{
-        case None => Val.False(Position(offset))
-        case Some(sup) =>
-          val key = visitExpr(lhs).cast[Val.Str]
-          Val.bool(Position(offset), sup.containsKey(key.value))
-      }
-
-    case $(offset) => scope.dollar0.getOrElse(Error.fail("Cannot use `$` outside an object", offset))
-    case Str(offset, value) => Val.Str(Position(offset), value)
-    case Num(offset, value) => Val.Num(Position(offset), value)
-    case Id(offset, value) => visitId(offset, value)
-
-    case Arr(offset, value) => Val.Arr(Position(offset), value.map(v => Val.Lazy(visitExpr(v))))
-    case Obj(offset, value) => visitObjBody(offset, value)
-
-    case UnaryOp(offset, op, value) => visitUnaryOp(offset, op, value)
-
-    case BinaryOp(offset, lhs, op, rhs) => {
-      visitBinaryOp(offset, lhs, op, rhs)
-    }
-    case AssertExpr(offset, Member.AssertStmt(value, msg), returned) =>
-      visitAssert(offset, value, msg, returned)
-
-    case LocalExpr(offset, bindings, returned) =>
-      lazy val newScope: ValScope = scope.extend(visitBindings(bindings.iterator, (self, sup) => newScope))
-      visitExpr(returned)(newScope, implicitly)
-
-    case Import(offset, value) => visitImport(offset, value)
-    case ImportStr(offset, value) => visitImportStr(offset, value)
-    case Expr.Error(offset, value) => visitError(offset, value)
-    case Apply(offset, value, Args(args)) => visitApply(offset, value, args)
-
-    case Select(offset, value, name) => visitSelect(offset, value, name)
-
-    case Lookup(offset, value, index) => visitLookup(offset, value, index)
-
-    case Slice(offset, value, start, end, stride) => visitSlice(offset, value, start, end, stride)
-    case Function(offset, params, body) => visitMethod(body, params, offset)
-    case IfElse(offset, cond, then, else0) => visitIfElse(offset, cond, then, else0)
-    case Comp(offset, value, first, rest) =>
-      Val.Arr(Position(offset), visitComp(first :: rest.toList, Seq(scope)).map(s => Val.Lazy(visitExpr(value)(s, implicitly))))
-    case ObjExtend(offset, value, ext) => {
-      if(strict && isObjLiteral(value))
-        Error.fail("Adjacent object literals not allowed in strict mode - Use '+' to concatenate objects", offset)
-      val original = visitExpr(value).cast[Val.Obj]
-      val extension = visitObjBody(offset, ext)
-      extension.addSuper(Position(offset), original)
-    }
-  } catch Error.tryCatch(expr.offset)
+  @inline def visitNull(e: Null)(implicit scope: ValScope, fileScope: FileScope): Val = Val.Null(Position(e.offset))
+  @inline def visitParened(e: Parened)(implicit scope: ValScope, fileScope: FileScope): Val = visitExpr(e.value)
+  @inline def visitTrue(e: True)(implicit scope: ValScope, fileScope: FileScope): Val = Val.True(Position(e.offset))
+  @inline def visitFalse(e: False)(implicit scope: ValScope, fileScope: FileScope): Val = Val.False(Position(e.offset))
+  @inline def visitSelf(e: Self)(implicit scope: ValScope, fileScope: FileScope): Val =
+    scope.self0.getOrElse(Error.fail("Cannot use `self` outside an object", e.offset))
+  @inline def visitDollar(e: $)(implicit scope: ValScope, fileScope: FileScope): Val = scope.dollar0.getOrElse(Error.fail("Cannot use `$` outside an object", e.offset))
+  @inline def visitStr(e: Str)(implicit scope: ValScope, fileScope: FileScope): Val = Val.Str(Position(e.offset), e.value)
+  @inline def visitNum(e: Num)(implicit scope: ValScope, fileScope: FileScope): Val = Val.Num(Position(e.offset), e.value)
+  @inline def visitArr(e: Arr)(implicit scope: ValScope, fileScope: FileScope): Val = Val.Arr(Position(e.offset), e.value.map(v => Val.Lazy(visitExpr(v))))
+  @inline def visitLocalExpr(e: LocalExpr)(implicit scope: ValScope, fileScope: FileScope): Val = {
+    lazy val newScope: ValScope = scope.extend(visitBindings(e.bindings.iterator, (self, sup) => newScope))
+    visitExpr(e.returned)(newScope, implicitly)
+  }
+  @inline def visitComp(e: Comp)(implicit scope: ValScope, fileScope: FileScope): Val =
+    Val.Arr(Position(e.offset), visitComp(e.first :: e.rest.toList, Seq(scope)).map(s => Val.Lazy(visitExpr(e.value)(s, implicitly))))
+  @inline def visitObjExtend(e: ObjExtend)(implicit scope: ValScope, fileScope: FileScope): Val = {
+    if(strict && isObjLiteral(e.base))
+      Error.fail("Adjacent object literals not allowed in strict mode - Use '+' to concatenate objects", e.offset)
+    val original = visitExpr(e.base).cast[Val.Obj]
+    val extension = visitObjBody(e.offset, e.ext)
+    extension.addSuper(Position(e.offset), original)
+  }
 
   private def isObjLiteral(expr: Expr): Boolean = expr match {
     case _: Obj => true
@@ -148,7 +118,7 @@ class Evaluator(parseCache: collection.mutable.Map[String, fastparse.Parsed[(Exp
     }
   }
 
-  private def visitApply(offset: Int, value: Expr, args: Seq[(Option[String], Expr)])
+  def visitApply(offset: Int, value: Expr, args: Seq[(Option[String], Expr)])
                         (implicit scope: ValScope, fileScope: FileScope) = {
     val lhs = visitExpr(value)
     val arr = new Array[(Option[String], Val.Lazy)](args.size)
@@ -182,7 +152,7 @@ class Evaluator(parseCache: collection.mutable.Map[String, fastparse.Parsed[(Exp
     visitExpr(returned)
   }
 
-  private def visitSlice(offset: Int,
+  def visitSlice(offset: Int,
                          value: Expr,
                          start: Option[Expr],
                          end: Option[Expr],
@@ -286,6 +256,13 @@ class Evaluator(parseCache: collection.mutable.Map[String, fastparse.Parsed[(Exp
     op match {
       // && and || are handled specially because unlike the other operators,
       // these short-circuit during evaluation in some cases when the LHS is known.
+      case Expr.BinaryOp.`in` =>
+        scope.super0 match{
+          case None => Val.False(Position(offset))
+          case Some(sup) =>
+            val key = visitExpr(lhs).cast[Val.Str]
+            Val.bool(Position(offset), sup.containsKey(key.value))
+        }
       case Expr.BinaryOp.`&&` | Expr.BinaryOp.`||` =>
         (visitExpr(lhs), op) match {
           case (lhs, Expr.BinaryOp.`&&`) =>
