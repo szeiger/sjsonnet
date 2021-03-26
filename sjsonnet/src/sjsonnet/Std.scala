@@ -58,11 +58,11 @@ object Std {
     },
     builtin("objectFields", "o"){ (pos, ev, fs, v1: Val.Obj) =>
       val keys = getVisibleKeys(ev, v1)
-      Val.Arr(pos, keys.map(k => (() => Val.Str(pos, k)): Val.Lazy))
+      Val.Arr(pos, keys.map(k => Val.Lazy.strict(Val.Str(pos, k))))
     },
     builtin("objectFieldsAll", "o"){ (pos, ev, fs, v1: Val.Obj) =>
       val keys = getAllKeys(ev, v1)
-      Val.Arr(pos, keys.map(k => (() => Val.Str(pos, k)): Val.Lazy))
+      Val.Arr(pos, keys.map(k => Val.Lazy.strict(Val.Str(pos, k))))
     },
     builtin("objectValues", "o"){ (pos, ev, fs, v1: Val.Obj) =>
       val keys = getVisibleKeys(ev, v1)
@@ -119,7 +119,7 @@ object Std {
     builtin("range", "from", "to"){ (pos, ev, fs, from: Int, to: Int) =>
       Val.Arr(
         pos,
-        (from to to).map(i => (() => Val.Num(pos, i)): Val.Lazy).toArray
+        (from to to).map(i => Val.Lazy.strict(Val.Num(pos, i))).toArray
       )
     },
     builtin("mergePatch", "target", "patch"){ (pos, ev, fs, target: Val, patch: Val) =>
@@ -181,7 +181,7 @@ object Std {
           var i = 0
           while(i < sz) {
             val forcedI = i
-            a(i) = () => func.apply(() => Val.Num(pos, forcedI))
+            a(i) = () => func.apply(Val.Lazy.strict(Val.Num(pos, forcedI)))
             i += 1
           }
           a
@@ -274,9 +274,7 @@ object Std {
     builtin("map", "func", "arr"){ (pos, ev, fs, func: Applyer, arr: Val.Arr) =>
       Val.Arr(
         pos,
-        arr.value.map{ i =>
-          (() => func.apply(i)): Val.Lazy
-        }
+        arr.value.map{ i => (() => func.apply(i)): Val.Lazy }
       )
     },
     builtin("mapWithKey", "func", "obj"){ (pos, ev, fs, func: Applyer, obj: Val.Obj) =>
@@ -300,7 +298,7 @@ object Std {
       Val.Arr(
         pos,
         arr.value.zipWithIndex.map{ case (x, i) =>
-          (() => func.apply(() => Val.Num(pos, i), x)): Val.Lazy
+          (() => func.apply(Val.Lazy.strict(Val.Num(pos, i)), x)): Val.Lazy
         }
       )
     },
@@ -351,7 +349,7 @@ object Std {
         for (
           (v, i) <- arr.value.zipWithIndex
           if Materializer(v.force)(ev) == Materializer(value)(ev)
-        ) yield (() => Val.Num(pos, i)): Val.Lazy
+        ) yield Val.Lazy.strict(Val.Num(pos, i))
       )
     },
     builtin("findSubstr", "pat", "str") { (pos, ev, fs, pat: String, str: String) =>
@@ -363,7 +361,7 @@ object Std {
           indices.append(matchIndex)
           matchIndex = str.indexOf(pat, matchIndex + 1)
         }
-        Val.Arr(pos, indices.map(x => (() => Val.Num(pos, x)): Val.Lazy).toArray)
+        Val.Arr(pos, indices.map(x => Val.Lazy.strict(Val.Num(pos, x))).toArray)
       }
     },
     builtin("substr", "s", "from", "len"){ (pos, ev, fs, s: String, from: Int, len: Int) =>
@@ -602,13 +600,13 @@ object Std {
       new String(Base64.getDecoder().decode(s))
     },
     builtin("base64DecodeBytes", "s"){ (pos, ev, fs, s: String) =>
-      Val.Arr(pos, Base64.getDecoder().decode(s).map(i => (() => Val.Num(pos, i)): Val.Lazy))
+      Val.Arr(pos, Base64.getDecoder().decode(s).map(i => Val.Lazy.strict(Val.Num(pos, i))))
     },
 
     builtin("gzip", "v"){ (pos, ev, fs, v: Val) =>
       v match{
         case Val.Str(_, value) => Platform.gzipString(value)
-        case Val.Arr(_, bytes) => Platform.gzipBytes(bytes.map(_.force.cast[Val.Num].value.toByte).toArray)
+        case Val.Arr(_, bytes) => Platform.gzipBytes(bytes.map(_.force.cast[Val.Num].value.toByte))
         case x => throw new Error.Delegate("Cannot gzip encode " + x.prettyName)
       }
     },
@@ -616,16 +614,16 @@ object Std {
     builtin("xz", "v"){ (pos, ev, fs, v: Val) =>
       v match{
         case Val.Str(_, value) => Platform.xzString(value)
-        case Val.Arr(_, bytes) => Platform.xzBytes(bytes.map(_.force.cast[Val.Num].value.toByte).toArray)
+        case Val.Arr(_, bytes) => Platform.xzBytes(bytes.map(_.force.cast[Val.Num].value.toByte))
         case x => throw new Error.Delegate("Cannot xz encode " + x.prettyName)
       }
     },
 
     builtin("encodeUTF8", "s"){ (pos, ev, fs, s: String) =>
-      Val.Arr(pos, s.getBytes(UTF_8).map(i => (() => Val.Num(pos, i & 0xff)): Val.Lazy))
+      Val.Arr(pos, s.getBytes(UTF_8).map(i => Val.Lazy.strict(Val.Num(pos, i & 0xff))))
     },
     builtin("decodeUTF8", "arr"){ (pos, ev, fs, arr: Val.Arr) =>
-      new String(arr.value.map(_.force.cast[Val.Num].value.toByte).toArray, UTF_8)
+      new String(arr.value.map(_.force.cast[Val.Num].value.toByte), UTF_8)
     },
 
     builtinWithDefaults("uniq", "arr" -> None, "keyF" -> Some(Expr.False(dummyPos))) { (pos, args, fs, ev) =>
@@ -773,10 +771,10 @@ object Std {
     },
 
     builtin("split", "str", "c"){ (pos, ev, fs, str: String, c: String) =>
-      Val.Arr(pos, str.split(java.util.regex.Pattern.quote(c), -1).map(s => (() => Val.Str(pos, s)): Val.Lazy))
+      Val.Arr(pos, str.split(java.util.regex.Pattern.quote(c), -1).map(s => Val.Lazy.strict(Val.Str(pos, s))))
     },
     builtin("splitLimit", "str", "c", "maxSplits"){ (pos, ev, fs, str: String, c: String, maxSplits: Int) =>
-      Val.Arr(pos, str.split(java.util.regex.Pattern.quote(c), maxSplits + 1).map(s => (() => Val.Str(pos, s)): Val.Lazy))
+      Val.Arr(pos, str.split(java.util.regex.Pattern.quote(c), maxSplits + 1).map(s => Val.Lazy.strict(Val.Str(pos, s))))
     },
     builtin("stringChars", "str"){ (pos, ev, fs, str: String) =>
       stringChars(pos, str)
@@ -832,7 +830,7 @@ object Std {
           }yield (k, Val.Obj.Member(false, Visibility.Normal, (_, _, _, _) => v))
           new Val.Obj(pos, mutable.LinkedHashMap() ++ bindings, _ => (), null)
         case a: Val.Arr =>
-          Val.Arr(pos, a.value.map(x => rec(x.force)).filter(filter).map(x => (() => x): Val.Lazy))
+          Val.Arr(pos, a.value.map(x => rec(x.force)).filter(filter).map(x => Val.Lazy.strict(x)))
         case _ => x
       }
       rec(s)
@@ -1025,9 +1023,9 @@ object Std {
           pos,
 
           if (vs.forall(_.force.isInstanceOf[Val.Str])){
-            vs.map(_.force.cast[Val.Str]).sortBy(_.value).map(x => (() => x): Val.Lazy)
+            vs.map(_.force.cast[Val.Str]).sortBy(_.value).map(x => Val.Lazy.strict(x))
           }else if (vs.forall(_.force.isInstanceOf[Val.Num])) {
-            vs.map(_.force.cast[Val.Num]).sortBy(_.value).map(x => (() => x): Val.Lazy)
+            vs.map(_.force.cast[Val.Num]).sortBy(_.value).map(x => Val.Lazy.strict(x))
           }else if (vs.forall(_.force.isInstanceOf[Val.Obj])){
             if (keyF.isInstanceOf[Val.False]) {
               throw new Error.Delegate("Unable to sort array of objects without key function")
@@ -1039,9 +1037,9 @@ object Std {
               val keys = objs.map((v) => keyFApplyer((() => v): Val.Lazy))
 
               if (keys.forall(_.isInstanceOf[Val.Str])){
-                objs.sortBy((v) => keyFApplyer((() => v): Val.Lazy).cast[Val.Str].value).map(x => (() => x): Val.Lazy)
+                objs.sortBy((v) => keyFApplyer((() => v): Val.Lazy).cast[Val.Str].value).map(x => Val.Lazy.strict(x))
               } else if (keys.forall(_.isInstanceOf[Val.Num])) {
-                objs.sortBy((v) => keyFApplyer((() => v): Val.Lazy).cast[Val.Num].value).map(x => (() => x): Val.Lazy)
+                objs.sortBy((v) => keyFApplyer((() => v): Val.Lazy).cast[Val.Num].value).map(x => Val.Lazy.strict(x))
               } else {
                 throw new Error.Delegate("Cannot sort with key values that are " + keys(0).prettyName + "s")
               }
@@ -1050,14 +1048,14 @@ object Std {
             ???
           }
         )
-      case Val.Str(pos, s) => Val.Arr(pos, s.sorted.map(c => (() => Val.Str(pos, c.toString)): Val.Lazy).toArray)
+      case Val.Str(pos, s) => Val.Arr(pos, s.sorted.map(c => Val.Lazy.strict(Val.Str(pos, c.toString))).toArray)
       case x => throw new Error.Delegate("Cannot sort " + x.prettyName)
     }
   }
 
   def stringChars(pos: Position, str: String): Val.Arr = {
     val output = str.toCharArray
-    Val.Arr(pos, output.map(s => (() => Val.Str(pos, s.toString())): Val.Lazy))
+    Val.Arr(pos, output.map(s => Val.Lazy.strict(Val.Str(pos, s.toString()))))
   }
   
   def getVisibleKeys(ev: EvalScope, v1: Val.Obj): Array[String] = {

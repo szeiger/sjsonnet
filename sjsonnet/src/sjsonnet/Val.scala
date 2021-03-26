@@ -48,6 +48,13 @@ object Val{
     }
   }
 
+  object Lazy {
+    def strict(v: Val): Lazy = new Lazy {
+      def compute() = v
+      override def force = v
+    }
+  }
+
   def bool(pos: Position, b: Boolean) = if (b) True(pos) else False(pos)
   sealed trait Bool extends Val{
   }
