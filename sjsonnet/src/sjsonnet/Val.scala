@@ -29,6 +29,7 @@ object PrettyNamed{
   implicit def strName: PrettyNamed[Val.Str] = new PrettyNamed("string")
   implicit def numName: PrettyNamed[Val.Num] = new PrettyNamed("number")
   implicit def arrName: PrettyNamed[Val.Arr] = new PrettyNamed("array")
+  implicit def staticArrName: PrettyNamed[Val.StaticArr] = new PrettyNamed("array")
   implicit def objName: PrettyNamed[Val.Obj] = new PrettyNamed("object")
   implicit def funName: PrettyNamed[Val.Func] = new PrettyNamed("function")
 }
@@ -72,6 +73,12 @@ object Val{
   case class Arr(pos: Position, value: Array[Lazy]) extends Val{
     def prettyName = "array"
   }
+  case class StaticArr(pos: Position, value: Array[Val]) extends Literal {
+    def prettyName = "array"
+    def toArr: Arr = Arr(pos, toArrValue)
+    def toArrValue: Array[Lazy] = value.map(x => (() => x): Lazy)
+  }
+
   object Obj{
 
     case class Member(add: Boolean,
@@ -178,10 +185,20 @@ object Val{
         val ll = l.asInstanceOf[Val.Num].value
         val rr = r.asInstanceOf[Val.Num].value
         Val.Num(pos, ll + rr)
-      } else if(l.isInstanceOf[Val.Arr] && r.isInstanceOf[Val.Arr]) {
+      } else if(l.isInstanceOf[Val.Arr]) {
         val ll = l.asInstanceOf[Val.Arr].value
-        val rr = r.asInstanceOf[Val.Arr].value
-        Val.Arr(pos, ll ++ rr)
+        if(r.isInstanceOf[Val.Arr]) {
+          Val.Arr(pos, ll ++ r.asInstanceOf[Val.Arr].value)
+        } else if(r.isInstanceOf[Val.StaticArr]) {
+          Val.Arr(pos, ll ++ r.asInstanceOf[Val.StaticArr].value.map(v => (() => v): Lazy))
+        } else throw new MatchError((l, r))
+      } else if(l.isInstanceOf[Val.StaticArr]) {
+        val ll = l.asInstanceOf[Val.StaticArr].value
+        if(r.isInstanceOf[Val.Arr]) {
+          Val.Arr(pos, ll.map(v => (() => v): Lazy) ++ r.asInstanceOf[Val.Arr].value)
+        } else if(r.isInstanceOf[Val.StaticArr]) {
+          Val.StaticArr(pos, ll ++ r.asInstanceOf[Val.StaticArr].value)
+        } else throw new MatchError((l, r))
       } else if(l.isInstanceOf[Val.Obj] && r.isInstanceOf[Val.Obj]) {
         val ll = l.asInstanceOf[Val.Obj]
         val rr = r.asInstanceOf[Val.Obj]

@@ -51,9 +51,17 @@ object ReadWriter{
   implicit object ArrRead extends ReadWriter[Val.Arr]{
     def apply(t: Val, ev: EvalScope, fs: FileScope) = t match{
       case v: Val.Arr => Right(v)
+      case v: Val.StaticArr => Right(v.toArr) // allow stdlib to use StaticArr as Arr
       case _ => Left("Array")
     }
     def write(pos: Position, t: Val.Arr) = t
+  }
+  implicit object StaticArrRead extends ReadWriter[Val.StaticArr]{
+    def apply(t: Val, ev: EvalScope, fs: FileScope) = t match{
+      case v: Val.StaticArr => Right(v)
+      case _ => Left("Array")
+    }
+    def write(pos: Position, t: Val.StaticArr) = t
   }
   implicit object FuncRead extends ReadWriter[Val.Func]{
     def apply(t: Val, ev: EvalScope, fs: FileScope) = t match{

@@ -42,6 +42,7 @@ object Parser {
   def idStartChar(c: Char) = c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
 
   private val emptyExprArray = new Array[Expr](0)
+  private val emptyValArray = new Array[Val](0)
 }
 
 class Parser(val currentFile: Path) {
@@ -131,15 +132,20 @@ class Parser(val currentFile: Path) {
 
 
   def obj[_: P]: P[Expr] = P( (Pos ~~ objinside).map(Expr.Obj.tupled) )
-  def arr[_: P]: P[Expr] = P( (Pos ~~ &("]")).map(Expr.Arr(_, emptyExprArray)) | arrBody )
+  def arr[_: P]: P[Expr] = P( (Pos ~~ &("]")).map { Val.StaticArr(_, emptyValArray) } | arrBody )
   def compSuffix[_: P] = P( forspec ~ compspec ).map(Left(_))
   def arrBody[_: P]: P[Expr] = P(
     Pos ~~ expr ~
     (compSuffix | "," ~ (compSuffix | (expr.rep(0, sep = ",") ~ ",".?).map(Right(_)))).?
   ).map{
-    case (offset, first, None) => Expr.Arr(offset, Array(first))
+    case (offset, first, None) => mkArray(offset, Seq(first))
     case (offset, first, Some(Left(comp))) => Expr.Comp(offset, first, comp._1, comp._2.toArray)
-    case (offset, first, Some(Right(rest))) => Expr.Arr(offset, Array(first) ++ rest)
+    case (offset, first, Some(Right(rest))) => mkArray(offset, first +: rest)
+  }
+
+  def mkArray(pos: Position, elems: Seq[Expr]): Expr = {
+    if(elems.forall(_.isInstanceOf[Val.Literal])) Val.StaticArr(pos, elems.asInstanceOf[Seq[Val]].toArray)
+    else Expr.Arr(pos, elems.toArray)
   }
 
   def assertExpr[_: P](pos: Position): P[Expr] =

@@ -46,6 +46,7 @@ object Std {
       v1 match{
         case Val.Str(_, s) => s.length
         case Val.Arr(_, s) => s.length
+        case Val.StaticArr(_, s) => s.length
         case o: Val.Obj => o.getVisibleKeysNonHiddenCount
         case o: Val.Func => o.params.names.length
         case _ => throw new Error.Delegate("Cannot get length of " + v1.prettyName)
@@ -59,11 +60,11 @@ object Std {
     },
     builtin("objectFields", "o"){ (pos, ev, fs, v1: Val.Obj) =>
       val keys = getVisibleKeys(ev, v1)
-      Val.Arr(pos, keys.map(k => (() => Val.Str(pos, k)): Val.Lazy))
+      Val.StaticArr(pos, keys.map(k => Val.Str(pos, k)))
     },
     builtin("objectFieldsAll", "o"){ (pos, ev, fs, v1: Val.Obj) =>
       val keys = getAllKeys(ev, v1)
-      Val.Arr(pos, keys.map(k => (() => Val.Str(pos, k)): Val.Lazy))
+      Val.StaticArr(pos, keys.map(k => Val.Str(pos, k)))
     },
     builtin("objectValues", "o"){ (pos, ev, fs, v1: Val.Obj) =>
       val keys = getVisibleKeys(ev, v1)
@@ -79,6 +80,7 @@ object Std {
         case Val.Null(_) => "null"
         case _: Val.Obj => "object"
         case _: Val.Arr => "array"
+        case _: Val.StaticArr => "array"
         case _: Val.Func => "function"
         case _: Val.Num => "number"
         case _: Val.Str => "string"
@@ -118,9 +120,9 @@ object Std {
       current
     },
     builtin("range", "from", "to"){ (pos, ev, fs, from: Int, to: Int) =>
-      Val.Arr(
+      Val.StaticArr(
         pos,
-        (from to to).map(i => (() => Val.Num(pos, i)): Val.Lazy).toArray
+        (from to to).map(i => Val.Num(pos, i)).toArray
       )
     },
     builtin("mergePatch", "target", "patch"){ (pos, ev, fs, target: Val, patch: Val) =>
@@ -252,7 +254,7 @@ object Std {
       v.isInstanceOf[Val.Obj]
     },
     builtin("isArray", "v"){ (pos, ev, fs, v: Val) =>
-      v.isInstanceOf[Val.Arr]
+      v.isInstanceOf[Val.Arr] || v.isInstanceOf[Val.StaticArr]
     },
     builtin("isFunction", "v"){ (pos, ev, fs, v: Val) =>
       v.isInstanceOf[Val.Func]
@@ -312,6 +314,7 @@ object Std {
               val fres = func.apply(v)
               fres match {
                 case va: Val.Arr => va.value
+                case va: Val.StaticArr => va.toArrValue
                 case unknown => throw new Error.Delegate("flatMap func must return an array, not " + unknown)
               }
             }
