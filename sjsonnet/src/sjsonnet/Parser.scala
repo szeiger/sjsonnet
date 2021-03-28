@@ -41,7 +41,7 @@ object Parser {
 
   def idStartChar(c: Char) = c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
 
-  private val emptyExprArray = new Array[Expr](0)
+  private val emptyValArray = new Array[Val](0)
 }
 
 class Parser(val currentFile: Path) {
@@ -130,16 +130,36 @@ class Parser(val currentFile: Path) {
   )
 
 
-  def obj[_: P]: P[Expr] = P( (Pos ~~ objinside).map(Expr.Obj.tupled) )
-  def arr[_: P]: P[Expr] = P( (Pos ~~ &("]")).map(Expr.Arr(_, emptyExprArray)) | arrBody )
+  def obj[_: P]: P[Expr] = P( (Pos ~~ objinside).map {
+    case (pos, body @ Expr.ObjBody.MemberList(exprs)) =>
+      val static = exprs.forall {
+        case Expr.Member.Field(_, Expr.FieldName.Fixed(_), false, null, Expr.Member.Visibility.Normal, rhs: Val) => true
+        case _ => false
+      }
+      if(static) {
+        val builder = mutable.LinkedHashMap.newBuilder[String, Val.Obj.Member]
+        exprs.foreach {
+          case Expr.Member.Field(_, Expr.FieldName.Fixed(fn), _, _, sep, rhs: Val) =>
+            builder += ((fn, Val.Obj.Member(false, sep, (self: Val.Obj, sup: Val.Obj, _, _) => rhs)))
+        }
+        new Val.StaticObj(pos, builder.result())
+      } else Expr.Obj(pos, body)
+    case (pos, body) => Expr.Obj(pos, body)
+  })
+  def arr[_: P]: P[Expr] = P( (Pos ~~ &("]")).map { new Val.StaticArr(_, emptyValArray) } | arrBody )
   def compSuffix[_: P] = P( forspec ~ compspec ).map(Left(_))
   def arrBody[_: P]: P[Expr] = P(
     Pos ~~ expr ~
     (compSuffix | "," ~ (compSuffix | (expr.rep(0, sep = ",") ~ ",".?).map(Right(_)))).?
   ).map{
-    case (offset, first, None) => Expr.Arr(offset, Array(first))
+    case (offset, first, None) => mkArray(offset, Seq(first))
     case (offset, first, Some(Left(comp))) => Expr.Comp(offset, first, comp._1, comp._2.toArray)
-    case (offset, first, Some(Right(rest))) => Expr.Arr(offset, Array(first) ++ rest)
+    case (offset, first, Some(Right(rest))) => mkArray(offset, first +: rest)
+  }
+
+  def mkArray(pos: Position, elems: Seq[Expr]): Expr = {
+    if(elems.forall(_.isInstanceOf[Val])) new Val.StaticArr(pos, elems.asInstanceOf[Seq[Val]].toArray[Val])
+    else Expr.Arr(pos, elems.toArray)
   }
 
   def assertExpr[_: P](pos: Position): P[Expr] =
@@ -320,6 +340,8 @@ class Parser(val currentFile: Path) {
        */
       (lhs, comps) match {
         case (Val.Str(_, _), (Expr.ForSpec(_, _, Expr.Arr(_, values)), _)) if values.length > 1 =>
+          Fail.opaque(s"""no duplicate field: "${lhs.asInstanceOf[Val.Str].value}" """)
+        case (Val.Str(_, _), (Expr.ForSpec(_, _, sa: Val.StaticArr), _)) if sa.value.length > 1 =>
           Fail.opaque(s"""no duplicate field: "${lhs.asInstanceOf[Val.Str].value}" """)
         case _ => // do nothing
       }

@@ -24,7 +24,7 @@ import util.control.Breaks._
   */
 object Std {
   private val dummyPos: Position = new Position(null, 0)
-  private val emptyLazyArray = new Array[Val.Lazy](0)
+  private val emptyEvalArray = new Array[Eval](0)
 
   val functions: Seq[(String, Val.Func)] = Seq(
     builtin("assertEqual", "a", "b"){ (offset, ev, fs, v1: Val, v2: Val) =>
@@ -59,11 +59,11 @@ object Std {
     },
     builtin("objectFields", "o"){ (pos, ev, fs, v1: Val.Obj) =>
       val keys = getVisibleKeys(ev, v1)
-      Val.Arr(pos, keys.map(k => (() => Val.Str(pos, k)): Val.Lazy))
+      Val.Arr(pos, keys.map(k => Val.Str(pos, k)))
     },
     builtin("objectFieldsAll", "o"){ (pos, ev, fs, v1: Val.Obj) =>
       val keys = getAllKeys(ev, v1)
-      Val.Arr(pos, keys.map(k => (() => Val.Str(pos, k)): Val.Lazy))
+      Val.Arr(pos, keys.map(k => Val.Str(pos, k)))
     },
     builtin("objectValues", "o"){ (pos, ev, fs, v1: Val.Obj) =>
       val keys = getVisibleKeys(ev, v1)
@@ -105,7 +105,7 @@ object Std {
       var current = init
       for(item <- arr.value){
         val c = current
-        current = func.apply(() => c, item)
+        current = func.apply(c, item)
       }
       current
     },
@@ -113,14 +113,14 @@ object Std {
       var current = init
       for(item <- arr.value.reverse){
         val c = current
-        current = func.apply(item, () => c)
+        current = func.apply(item, c)
       }
       current
     },
     builtin("range", "from", "to"){ (pos, ev, fs, from: Int, to: Int) =>
       Val.Arr(
         pos,
-        (from to to).map(i => (() => Val.Num(pos, i)): Val.Lazy).toArray
+        (from to to).map(i => Val.Num(pos, i)).toArray
       )
     },
     builtin("mergePatch", "target", "patch"){ (pos, ev, fs, target: Val, patch: Val) =>
@@ -177,11 +177,11 @@ object Std {
       Val.Arr(
         pos,
         {
-          val a = new Array[Val.Lazy](sz)
+          val a = new Array[Eval](sz)
           var i = 0
           while(i < sz) {
             val forcedI = i
-            a(i) = () => func.apply(() => Val.Num(pos, forcedI))
+            a(i) = (() => func.apply(Val.Num(pos, forcedI))): Lazy
             i += 1
           }
           a
@@ -275,7 +275,7 @@ object Std {
       Val.Arr(
         pos,
         arr.value.map{ i =>
-          (() => func.apply(i)): Val.Lazy
+          (() => func.apply(i)): Lazy
         }
       )
     },
@@ -287,8 +287,8 @@ object Std {
         allKeys.map{ k =>
           k -> (Val.Obj.Member(false, Visibility.Normal, (self: Val.Obj, sup: Val.Obj, _, _) =>
             func.apply(
-              () => Val.Str(pos, k),
-              () => obj.value(k, fs.noOffsetPos)(ev)
+              Val.Str(pos, k),
+              (() => obj.value(k, fs.noOffsetPos)(ev)): Lazy
             )
           ))
         },
@@ -300,28 +300,28 @@ object Std {
       Val.Arr(
         pos,
         arr.value.zipWithIndex.map{ case (x, i) =>
-          (() => func.apply(() => Val.Num(pos, i), x)): Val.Lazy
+          (() => func.apply(Val.Num(pos, i), x)): Lazy
         }
       )
     },
     builtin("flatMap", "func", "arr"){ (pos, ev, fs, func: Applyer, arr: Val) =>
       val res: Val = arr match {
         case a: Val.Arr =>
-          val arrResults = a.value.flatMap {
+          val arrResults = a.value.asInstanceOf[Array[Eval]].flatMap {
             v => {
               val fres = func.apply(v)
               fres match {
                 case va: Val.Arr => va.value
                 case unknown => throw new Error.Delegate("flatMap func must return an array, not " + unknown)
               }
-            }
+            }.asInstanceOf[Array[Eval]]
           }
           Val.Arr(pos, arrResults)
 
         case s: Val.Str =>
           val builder = new StringBuilder()
           for (c: Char <- s.value) {
-            val fres = func.apply(() => Val.Str(pos, c.toString))
+            val fres = func.apply(Val.Str(pos, c.toString))
             builder.append(
               fres match {
                 case fstr: Val.Str => fstr.value
@@ -340,8 +340,8 @@ object Std {
         pos,
         arr.value.flatMap { i =>
           val x = i.force
-          if (!filter_func.apply(() => x).isInstanceOf[Val.True]) None
-          else Some[Val.Lazy](() => map_func.apply(() => x))
+          if (!filter_func.apply(x).isInstanceOf[Val.True]) None
+          else Some[Lazy](() => map_func.apply(x))
         }
       )
     },
@@ -351,11 +351,11 @@ object Std {
         for (
           (v, i) <- arr.value.zipWithIndex
           if Materializer(v.force)(ev) == Materializer(value)(ev)
-        ) yield (() => Val.Num(pos, i)): Val.Lazy
+        ) yield Val.Num(pos, i)
       )
     },
     builtin("findSubstr", "pat", "str") { (pos, ev, fs, pat: String, str: String) =>
-      if (pat.length == 0) Val.Arr(pos, emptyLazyArray)
+      if (pat.length == 0) Val.Arr(pos, emptyEvalArray)
       else {
         val indices = mutable.ArrayBuffer[Int]()
         var matchIndex = str.indexOf(pat)
@@ -363,7 +363,7 @@ object Std {
           indices.append(matchIndex)
           matchIndex = str.indexOf(pat, matchIndex + 1)
         }
-        Val.Arr(pos, indices.map(x => (() => Val.Num(pos, x)): Val.Lazy).toArray)
+        Val.Arr(pos, indices.map(x => Val.Num(pos, x)).toArray)
       }
     },
     builtin("substr", "s", "from", "len"){ (pos, ev, fs, s: String, from: Int, len: Int) =>
@@ -413,7 +413,7 @@ object Std {
               .mkString(s)
           )
         case Val.Arr(_, sep) =>
-          val out = new mutable.ArrayBuffer[Val.Lazy]
+          val out = new mutable.ArrayBuffer[Eval]
           for(x <- arr.value){
             x.force match{
               case Val.Null(_) => // do nothing
@@ -454,7 +454,7 @@ object Std {
           }
           Val.Str(pos, builder.toString())
         case a: Val.Arr =>
-          val out = new mutable.ArrayBuffer[Val.Lazy]
+          val out = new mutable.ArrayBuffer[Eval]
           for (i <- 1 to count) {
             out.appendAll(a.value)
           }
@@ -465,7 +465,7 @@ object Std {
     },
 
     builtin("flattenArrays", "arrs"){ (pos, ev, fs, arrs: Val.Arr) =>
-      val out = new mutable.ArrayBuffer[Val.Lazy]
+      val out = new mutable.ArrayBuffer[Eval]
       for(x <- arrs.value){
         x.force match{
           case Val.Null(_) => // do nothing
@@ -602,7 +602,7 @@ object Std {
       new String(Base64.getDecoder().decode(s))
     },
     builtin("base64DecodeBytes", "s"){ (pos, ev, fs, s: String) =>
-      Val.Arr(pos, Base64.getDecoder().decode(s).map(i => (() => Val.Num(pos, i)): Val.Lazy))
+      Val.Arr(pos, Base64.getDecoder().decode(s).map(i => Val.Num(pos, i)))
     },
 
     builtin("gzip", "v"){ (pos, ev, fs, v: Val) =>
@@ -622,7 +622,7 @@ object Std {
     },
 
     builtin("encodeUTF8", "s"){ (pos, ev, fs, s: String) =>
-      Val.Arr(pos, s.getBytes(UTF_8).map(i => (() => Val.Num(pos, i & 0xff)): Val.Lazy))
+      Val.Arr(pos, s.getBytes(UTF_8).map(i => Val.Num(pos, i & 0xff)))
     },
     builtin("decodeUTF8", "arr"){ (pos, ev, fs, arr: Val.Arr) =>
       new String(arr.value.map(_.force.cast[Val.Num].value.toByte).toArray, UTF_8)
@@ -672,7 +672,7 @@ object Std {
       }
 
       val keyF = args("keyF")
-      val out = new mutable.ArrayBuffer[Val.Lazy]
+      val out = new mutable.ArrayBuffer[Eval]
 
       for (v <- a) {
         if (keyF.isInstanceOf[Val.False]) {
@@ -719,7 +719,7 @@ object Std {
       }
 
       val keyF = args("keyF")
-      val out = new mutable.ArrayBuffer[Val.Lazy]
+      val out = new mutable.ArrayBuffer[Eval]
 
       for (v <- a) {
         if (keyF.isInstanceOf[Val.False]) {
@@ -760,7 +760,7 @@ object Std {
         val mx = Materializer(args("x"))(ev)
         mArr.contains(mx)
       } else {
-        val x: Val.Lazy = () => args("x")
+        val x = args("x")
         val arr = args("arr").asInstanceOf[Val.Arr].value
         val keyFFunc = keyF.asInstanceOf[Val.Func]
         val keyFApplyer = Applyer(keyFFunc, ev, null)
@@ -773,10 +773,10 @@ object Std {
     },
 
     builtin("split", "str", "c"){ (pos, ev, fs, str: String, c: String) =>
-      Val.Arr(pos, str.split(java.util.regex.Pattern.quote(c), -1).map(s => (() => Val.Str(pos, s)): Val.Lazy))
+      Val.Arr(pos, str.split(java.util.regex.Pattern.quote(c), -1).map(s => Val.Str(pos, s)))
     },
     builtin("splitLimit", "str", "c", "maxSplits"){ (pos, ev, fs, str: String, c: String, maxSplits: Int) =>
-      Val.Arr(pos, str.split(java.util.regex.Pattern.quote(c), maxSplits + 1).map(s => (() => Val.Str(pos, s)): Val.Lazy))
+      Val.Arr(pos, str.split(java.util.regex.Pattern.quote(c), maxSplits + 1).map(s => Val.Str(pos, s)))
     },
     builtin("stringChars", "str"){ (pos, ev, fs, str: String) =>
       stringChars(pos, str)
@@ -800,7 +800,7 @@ object Std {
           case ujson.Num(value) => Val.Num(pos, value)
           case ujson.Str(value) => Val.Str(pos, value)
           case ujson.Arr(values) =>
-            val transformedValue: Array[Val.Lazy] = values.map(v => (() => recursiveTransform(v)): Val.Lazy).toArray
+            val transformedValue: Array[_ <: Eval] = values.map(v => (() => recursiveTransform(v)): Lazy).toArray
             Val.Arr(pos, transformedValue)
           case ujson.Obj(valueMap) =>
             val transformedValue = mutable.LinkedHashMap() ++ valueMap
@@ -831,7 +831,7 @@ object Std {
           }yield (k, Val.Obj.Member(false, Visibility.Normal, (_, _, _, _) => v))
           new Val.Obj(pos, mutable.LinkedHashMap() ++ bindings, null, null)
         case a: Val.Arr =>
-          Val.Arr(pos, a.value.map(x => rec(x.force)).filter(filter).map(x => (() => x): Val.Lazy))
+          Val.Arr(pos, a.value.iterator.map(x => rec(x.force)).filter(filter).toArray)
         case _ => x
       }
       rec(s)
@@ -969,7 +969,7 @@ object Std {
 
   def scope(size: Int) = {
     new ValScope(
-      null, null, null, Array[Val.Lazy](() => Std).padTo(size, null)
+      null, null, null, Array[Eval](Std).padTo(size, null)
     )
   }
 
@@ -980,7 +980,7 @@ object Std {
       case _ => throw new Error.Delegate("Argument must be either array or string")
     }
 
-    val out = new mutable.ArrayBuffer[Val.Lazy]
+    val out = new mutable.ArrayBuffer[Eval]
     for (v <- arrValue) {
       if (out.isEmpty) {
         out.append(v)
@@ -1020,9 +1020,9 @@ object Std {
           pos,
 
           if (vs.forall(_.force.isInstanceOf[Val.Str])){
-            vs.map(_.force.cast[Val.Str]).sortBy(_.value).map(x => (() => x): Val.Lazy)
+            vs.map(_.force.cast[Val.Str]).sortBy(_.value)
           }else if (vs.forall(_.force.isInstanceOf[Val.Num])) {
-            vs.map(_.force.cast[Val.Num]).sortBy(_.value).map(x => (() => x): Val.Lazy)
+            vs.map(_.force.cast[Val.Num]).sortBy(_.value)
           }else if (vs.forall(_.force.isInstanceOf[Val.Obj])){
             if (keyF.isInstanceOf[Val.False]) {
               throw new Error.Delegate("Unable to sort array of objects without key function")
@@ -1031,12 +1031,12 @@ object Std {
 
               val keyFFunc = keyF.asInstanceOf[Val.Func]
               val keyFApplyer = Applyer(keyFFunc, ev, null)
-              val keys = objs.map((v) => keyFApplyer((() => v): Val.Lazy))
+              val keys = objs.map((v) => keyFApplyer(v))
 
               if (keys.forall(_.isInstanceOf[Val.Str])){
-                objs.sortBy((v) => keyFApplyer((() => v): Val.Lazy).cast[Val.Str].value).map(x => (() => x): Val.Lazy)
+                objs.sortBy((v) => keyFApplyer(v).cast[Val.Str].value)
               } else if (keys.forall(_.isInstanceOf[Val.Num])) {
-                objs.sortBy((v) => keyFApplyer((() => v): Val.Lazy).cast[Val.Num].value).map(x => (() => x): Val.Lazy)
+                objs.sortBy((v) => keyFApplyer(v).cast[Val.Num].value)
               } else {
                 throw new Error.Delegate("Cannot sort with key values that are " + keys(0).prettyName + "s")
               }
@@ -1045,14 +1045,14 @@ object Std {
             ???
           }
         )
-      case Val.Str(pos, s) => Val.Arr(pos, s.sorted.map(c => (() => Val.Str(pos, c.toString)): Val.Lazy).toArray)
+      case Val.Str(pos, s) => Val.Arr(pos, s.sorted.map(c => Val.Str(pos, c.toString)).toArray)
       case x => throw new Error.Delegate("Cannot sort " + x.prettyName)
     }
   }
 
   def stringChars(pos: Position, str: String): Val.Arr = {
     val output = str.toCharArray
-    Val.Arr(pos, output.map(s => (() => Val.Str(pos, s.toString())): Val.Lazy))
+    Val.Arr(pos, output.map(s => Val.Str(pos, s.toString())))
   }
   
   def getVisibleKeys(ev: EvalScope, v1: Val.Obj): Array[String] =
@@ -1070,8 +1070,6 @@ object Std {
   }
   
   def getObjValuesFromKeys(pos: Position, ev: EvalScope, fs: FileScope, v1: Val.Obj, keys: Array[String]): Val.Arr = {
-    Val.Arr(pos, keys.map { k =>
-      (() => v1.value(k, fs.noOffsetPos)(ev)): Val.Lazy
-    })
+    Val.Arr(pos, keys.map { k => v1.value(k, fs.noOffsetPos)(ev) })
   }
 }

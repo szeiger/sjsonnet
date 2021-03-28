@@ -9,13 +9,33 @@ import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.reflect.ClassTag
 
+sealed abstract class Eval {
+  def force: Val
+}
+
+/**
+ * [[Lazy]] models lazy evaluation within a Jsonnet program. Lazily
+ * evaluated dictionary values, array contents, or function parameters
+ * are all wrapped in [[Lazy]] and only truly evaluated on-demand
+ */
+abstract class Lazy extends Eval {
+  def prettyName = "lazy"
+  def pos = ???
+  private[this] var cached: Val = null
+  def compute(): Val
+  def force: Val = {
+    if(cached == null) cached = compute()
+    cached
+  }
+}
+
 /**
   * [[Val]]s represented Jsonnet values that are the result of evaluating
   * a Jsonnet program. The [[Val]] data structure is essentially a JSON tree,
   * except evaluation of object attributes and array contents are lazy, and
   * the tree can contain functions.
   */
-sealed abstract class Val {
+sealed abstract class Val extends Eval {
   def prettyName: String
   def cast[T: ClassTag: PrettyNamed] =
     if (implicitly[ClassTag[T]].runtimeClass.isInstance(this)) this.asInstanceOf[T]
@@ -23,6 +43,7 @@ sealed abstract class Val {
       "Expected " + implicitly[PrettyNamed[T]].s + ", found " + prettyName
     )
   def pos: Position
+  def force = this
 }
 class PrettyNamed[T](val s: String)
 object PrettyNamed{
@@ -33,20 +54,6 @@ object PrettyNamed{
   implicit def funName: PrettyNamed[Val.Func] = new PrettyNamed("function")
 }
 object Val{
-
-  /**
-    * [[Lazy]] models lazy evaluation within a Jsonnet program. Lazily
-    * evaluated dictionary values, array contents, or function parameters
-    * are all wrapped in [[Lazy]] and only truly evaluated on-demand
-    */
-  abstract class Lazy {
-    private[this] var cached: Val = null
-    def compute(): Val
-    def force: Val = {
-      if(cached == null) cached = compute()
-      cached
-    }
-  }
 
   abstract class Literal extends Val with Expr
   abstract class Bool extends Literal
@@ -69,9 +76,11 @@ object Val{
     def prettyName = "number"
   }
 
-  case class Arr(pos: Position, value: Array[Lazy]) extends Val{
+  case class Arr(pos: Position, value: Array[_ <: Eval]) extends Val{
     def prettyName = "array"
   }
+  class StaticArr(_pos: Position, _value: Array[_ <: Val]) extends Arr(_pos, _value) with Expr
+
   object Obj{
 
     case class Member(add: Boolean,
@@ -81,14 +90,16 @@ object Val{
 
 
   }
-  final class Obj(val pos: Position,
-                  value0: mutable.Map[String, Obj.Member],
-                  triggerAsserts: Val.Obj => Unit,
-                  `super`: Obj) extends Val{
+  class StaticObj(_pos: Position,
+                  value0: mutable.Map[String, Obj.Member]) extends Obj(_pos, value0, null, null) with Expr
+  sealed class Obj(val pos: Position,
+            value0: mutable.Map[String, Obj.Member],
+            triggerAsserts: Val.Obj => Unit,
+            `super`: Obj) extends Val{
 
     def getSuper = `super`
 
-    @tailrec def triggerAllAsserts(obj: Val.Obj): Unit = {
+    @tailrec final def triggerAllAsserts(obj: Val.Obj): Unit = {
       if(triggerAsserts != null) triggerAsserts(obj)
       if(`super` != null) `super`.triggerAllAsserts(obj)
     }
@@ -222,7 +233,7 @@ object Val{
 
     def prettyName = "function"
 
-    def apply(argNames: Array[String], argVals: Array[Lazy],
+    def apply(argNames: Array[String], argVals: Array[_ <: Eval],
               thisFile: String,
               outerPos: Position)
              (implicit evaluator: EvalScope) = {
@@ -263,11 +274,11 @@ object Val{
           }
         } else {
           lazy val newScope: ValScope = {
-            val defaultArgsBindings = new Array[Lazy](params.defaultsOnly.length)
+            val defaultArgsBindings = new Array[Eval](params.defaultsOnly.length)
             var idx = 0
             while (idx < params.defaultsOnly.length) {
               val default = params.defaultsOnly(idx)
-              defaultArgsBindings(idx) = () => evalDefault(default, newScope, evaluator)
+              defaultArgsBindings(idx) = (() => evalDefault(default, newScope, evaluator)): Lazy
               idx += 1
             }
             val newBindingsI = util.Arrays.copyOf(defaultArgsBindingIndices, defaultArgsBindings.length + argVals.length)
@@ -359,8 +370,8 @@ object ValScope{
   def empty(size: Int) = new ValScope(null, null, null, new Array(size))
 
   def createSimple(newBindingsI: Array[Int],
-                   newBindingsV: Array[Val.Lazy]) = {
-    val arr = new Array[Val.Lazy](newBindingsI.length)
+                   newBindingsV: Array[_ <: Eval]) = {
+    val arr = new Array[Eval](newBindingsI.length)
     var i = 0
     while(i < newBindingsI.length) {
       arr(newBindingsI(i)) = newBindingsV(i)
@@ -388,12 +399,12 @@ object ValScope{
 class ValScope(val dollar0: Val.Obj,
                val self0: Val.Obj,
                val super0: Val.Obj,
-               bindings0: Array[Val.Lazy]) {
+               bindings0: Array[_ <: Eval]) {
 
-  def bindings(k: Int): Val.Lazy = bindings0(k)
+  def bindings(k: Int): Eval = bindings0(k)
 
   def extend(newBindingsI: Array[Expr.Bind] = null,
-             newBindingsF: Array[(Val.Obj, Val.Obj) => Val.Lazy] = null,
+             newBindingsF: Array[(Val.Obj, Val.Obj) => Eval] = null,
              newDollar: Val.Obj = null,
              newSelf: Val.Obj = null,
              newSuper: Val.Obj = null) = {
@@ -406,7 +417,7 @@ class ValScope(val dollar0: Val.Obj,
       sup,
       if (newBindingsI == null || newBindingsI.length == 0) bindings0
       else{
-        val b = bindings0.clone()
+        val b = util.Arrays.copyOf(bindings0, bindings0.length, classOf[Array[Eval]])
         var i = 0
         while(i < newBindingsI.length) {
           b(newBindingsI(i).name) = newBindingsF(i).apply(self, sup)
@@ -418,10 +429,10 @@ class ValScope(val dollar0: Val.Obj,
   }
 
   def extendSimple(newBindingsI: Array[Int],
-                   newBindingsV: Array[Val.Lazy]) = {
+                   newBindingsV: Array[_ <: Eval]) = {
     if(newBindingsI == null || newBindingsI.length == 0) this
     else {
-      val b = bindings0.clone()
+      val b = util.Arrays.copyOf(bindings0, bindings0.length, classOf[Array[Eval]])
       var i = 0
       while(i < newBindingsI.length) {
         b(newBindingsI(i)) = newBindingsV(i)
@@ -432,8 +443,8 @@ class ValScope(val dollar0: Val.Obj,
   }
 
   def extendSimple(newBindingI: Int,
-                   newBindingV: Val.Lazy) = {
-    val b = bindings0.clone()
+                   newBindingV: Eval) = {
+    val b = util.Arrays.copyOf(bindings0, bindings0.length, classOf[Array[Eval]])
     b(newBindingI) = newBindingV
     new ValScope(dollar0, self0, super0, b)
   }
