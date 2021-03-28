@@ -41,7 +41,7 @@ object Parser {
 
   def idStartChar(c: Char) = c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
 
-  private val emptyExprArray = new Array[Expr](0)
+  private val emptyValArray = new Array[Val](0)
 }
 
 class Parser(val currentFile: Path) {
@@ -131,15 +131,20 @@ class Parser(val currentFile: Path) {
 
 
   def obj[_: P]: P[Expr] = P( (Pos ~~ objinside).map(Expr.Obj.tupled) )
-  def arr[_: P]: P[Expr] = P( (Pos ~~ &("]")).map(Expr.Arr(_, emptyExprArray)) | arrBody )
+  def arr[_: P]: P[Expr] = P( (Pos ~~ &("]")).map(new Val.StaticArr(_, emptyValArray)) | arrBody )
   def compSuffix[_: P] = P( forspec ~ compspec ).map(Left(_))
   def arrBody[_: P]: P[Expr] = P(
     Pos ~~ expr ~
     (compSuffix | "," ~ (compSuffix | (expr.rep(0, sep = ",") ~ ",".?).map(Right(_)))).?
   ).map{
-    case (offset, first, None) => Expr.Arr(offset, Array(first))
+    case (offset, first, None) => mkArr(offset, Seq(first))
     case (offset, first, Some(Left(comp))) => Expr.Comp(offset, first, comp._1, comp._2.toArray)
-    case (offset, first, Some(Right(rest))) => Expr.Arr(offset, Array(first) ++ rest)
+    case (offset, first, Some(Right(rest))) => mkArr(offset, first +: rest)
+  }
+
+  def mkArr(offset: Position, elems: Seq[Expr]): Expr = {
+    if(elems.forall(_.isInstanceOf[Val])) new Val.StaticArr(offset, elems.asInstanceOf[Seq[Val]].toArray)
+    else Expr.Arr(offset, elems.toArray)
   }
 
   def assertExpr[_: P](pos: Position): P[Expr] =
@@ -319,6 +324,8 @@ class Parser(val currentFile: Path) {
        */
       (lhs, comps) match {
         case (Val.Str(_, _), (Expr.ForSpec(_, _, Expr.Arr(_, values)), _)) if values.length > 1 =>
+          Fail.opaque(s"""no duplicate field: "${lhs.asInstanceOf[Val.Str].value}" """)
+        case (Val.Str(_, _), (Expr.ForSpec(_, _, a: Val.StaticArr), _)) if a.value.length > 1 =>
           Fail.opaque(s"""no duplicate field: "${lhs.asInstanceOf[Val.Str].value}" """)
         case _ => // do nothing
       }

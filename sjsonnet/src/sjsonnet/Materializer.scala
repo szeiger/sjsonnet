@@ -1,7 +1,7 @@
 package sjsonnet
 import sjsonnet.Expr.{FieldName, Member, ObjBody}
 import sjsonnet.Expr.Member.Visibility
-import sjsonnet.Val.Lazy
+import sjsonnet.Lazy
 import upickle.core.Visitor
 
 import scala.collection.mutable
@@ -88,7 +88,7 @@ object Materializer {
     case ujson.Null => Val.Null(pos)
     case ujson.Num(n) => Val.Num(pos, n)
     case ujson.Str(s) => Val.Str(pos, s)
-    case ujson.Arr(xs) => Val.Arr(pos, xs.map(x => (() => reverse(pos, x)): Val.Lazy).toArray[Val.Lazy])
+    case ujson.Arr(xs) => Val.Arr(pos, xs.map(x => (() => reverse(pos, x)): Lazy).toArray[Eval])
     case ujson.Obj(xs) =>
       val builder = mutable.LinkedHashMap.newBuilder[String, Val.Obj.Member]
       for(x <- xs){
@@ -117,6 +117,6 @@ object Materializer {
   }
 
   val emptyStringArray = new Array[String](0)
-  val emptyLazyArray = new Array[Lazy](0)
+  val emptyLazyArray = new Array[Eval](0)
 
 }

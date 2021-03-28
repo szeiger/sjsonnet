@@ -33,7 +33,7 @@ class Evaluator(parseCache: collection.mutable.Map[String, fastparse.Parsed[(Exp
   def visitExpr(expr: Expr)
                (implicit scope: ValScope): Val = try {
     expr match {
-      case lit: Val.Literal => lit
+      case lit: Val => lit
       case Self(pos) =>
         val self = scope.self0
         if(self == null) Error.fail("Cannot use `self` outside an object", pos)
@@ -52,7 +52,7 @@ class Evaluator(parseCache: collection.mutable.Map[String, fastparse.Parsed[(Exp
         dollar
       case Id(pos, value) => visitId(pos, value)
 
-      case Arr(pos, value) => Val.Arr(pos, value.map(v => (() => visitExpr(v)): Val.Lazy))
+      case Arr(pos, value) => Val.Arr(pos, value.map(v => (() => visitExpr(v)): Lazy))
       case Obj(pos, value) => visitObjBody(pos, value)
 
       case UnaryOp(pos, op, value) => visitUnaryOp(pos, op, value)
@@ -83,7 +83,7 @@ class Evaluator(parseCache: collection.mutable.Map[String, fastparse.Parsed[(Exp
       case Function(pos, params, body) => visitMethod(body, params, pos)
       case IfElse(pos, cond, then0, else0) => visitIfElse(pos, cond, then0, else0)
       case Comp(pos, value, first, rest) =>
-        Val.Arr(pos, visitComp(first :: rest.toList, Array(scope)).map(s => (() => visitExpr(value)(s)): Val.Lazy))
+        Val.Arr(pos, visitComp(first :: rest.toList, Array(scope)).map(s => (() => visitExpr(value)(s)): Lazy))
       case ObjExtend(pos, value, ext) => {
         if(strict && isObjLiteral(value))
           Error.fail("Adjacent object literals not allowed in strict mode - Use '+' to concatenate objects", pos)
@@ -150,11 +150,11 @@ class Evaluator(parseCache: collection.mutable.Map[String, fastparse.Parsed[(Exp
   private def visitApply(pos: Position, value: Expr, argNames: Array[String], argExprs: Array[Expr])
                         (implicit scope: ValScope) = {
     val lhs = visitExpr(value)
-    val arr = new Array[Val.Lazy](argExprs.length)
+    val arr = new Array[Eval](argExprs.length)
     var idx = 0
     while (idx < argExprs.length) {
       val boundIdx = idx
-      arr(idx) = () => visitExpr(argExprs(boundIdx))
+      arr(idx) = (() => visitExpr(argExprs(boundIdx))): Lazy
       idx += 1
     }
 
@@ -391,8 +391,8 @@ class Evaluator(parseCache: collection.mutable.Map[String, fastparse.Parsed[(Exp
     )
   }
 
-  def visitBindings(bindings: Array[Bind], scope: (Val.Obj, Val.Obj) => ValScope): Array[(Val.Obj, Val.Obj) => Val.Lazy] = {
-    val arrF = new Array[(Val.Obj, Val.Obj) => Val.Lazy](bindings.length)
+  def visitBindings(bindings: Array[Bind], scope: (Val.Obj, Val.Obj) => ValScope): Array[(Val.Obj, Val.Obj) => Lazy] = {
+    val arrF = new Array[(Val.Obj, Val.Obj) => Lazy](bindings.length)
     var i = 0
     while(i < bindings.length) {
       val b = bindings(i)
@@ -512,7 +512,7 @@ class Evaluator(parseCache: collection.mutable.Map[String, fastparse.Parsed[(Exp
         for{
           s <- scopes
           e <- visitExpr(expr)(s) match{
-            case Val.Arr(_, value) => value
+            case Val.Arr(_, value) => value.asInstanceOf[Array[Eval]]
             case r => Error.fail(
               "In comprehension, can only iterate over array, not " + r.prettyName,
               expr.pos
