@@ -81,31 +81,28 @@ object Val{
                       cached: Boolean = true)
 
     def mk(pos: Position, members: (String, Obj.Member)*): Obj = {
-      val m = new util.LinkedHashMap[String, Obj.Member]()
+      val m = new SymbolMap[Obj.Member](members.size)
       for((k, v) <- members) m.put(k, v)
       new Obj(pos, m, false, null, null)
     }
   }
 
   final class Obj(val pos: Position,
-                  private[this] var value0: util.LinkedHashMap[String, Obj.Member],
+                  private[this] var value0: SymbolMap[Obj.Member],
                   static: Boolean,
                   triggerAsserts: Val.Obj => Unit,
                   `super`: Obj,
                   valueCache: mutable.HashMap[Any, Val] = mutable.HashMap.empty[Any, Val],
-                  private[this] var allKeys: util.LinkedHashMap[String, java.lang.Boolean] = null) extends Literal with Expr.ObjBody {
+                  private[this] var allKeys: SymbolMap[java.lang.Boolean] = null) extends Literal with Expr.ObjBody {
 
     def getSuper = `super`
 
-    private[this] def getValue0: util.LinkedHashMap[String, Obj.Member] = {
-      if(value0 == null) {
-        value0 = new java.util.LinkedHashMap[String, Val.Obj.Member]
-        allKeys.forEach { (k, _) =>
+    private[this] def getValue0: SymbolMap[Obj.Member] = {
+      if(value0 == null)
+        value0 = allKeys.mapKeysToValues { k =>
           val v = valueCache(k)
-          val m = Val.Obj.Member(false, Visibility.Normal, (self: Val.Obj, sup: Val.Obj, _, _) => v)
-          value0.put(k, m)
+          Val.Obj.Member(false, Visibility.Normal, (self: Val.Obj, sup: Val.Obj, _, _) => v)
         }
-      }
       value0
     }
 
@@ -123,7 +120,7 @@ object Val{
 
     def prettyName = "object"
 
-    private def gatherKeys(mapping: util.LinkedHashMap[String, java.lang.Boolean]): Unit = {
+    private def gatherKeys(mapping: SymbolMap[java.lang.Boolean]): Unit = {
       if(`super` != null) `super`.gatherKeys(mapping)
       getValue0.forEach { (k, m) =>
         val vis = m.visibility
@@ -135,7 +132,7 @@ object Val{
 
     private def getAllKeys = {
       if(allKeys == null) {
-        allKeys = new util.LinkedHashMap[String, java.lang.Boolean]
+        allKeys = new SymbolMap[java.lang.Boolean]
         gatherKeys(allKeys)
       }
       allKeys
@@ -147,7 +144,7 @@ object Val{
 
     @inline def containsVisibleKey(k: String): Boolean = getAllKeys.get(k) == java.lang.Boolean.FALSE
 
-    lazy val allKeyNames: Array[String] = getAllKeys.keySet().toArray(new Array[String](getAllKeys.size()))
+    lazy val allKeyNames: Array[String] = getAllKeys.keysToArray()
 
     lazy val visibleKeyNames: Array[String] = if(static) allKeyNames else {
       val buf = mutable.ArrayBuilder.make[String]
@@ -226,7 +223,7 @@ object Val{
 
   def staticObject(pos: Position, fields: Array[Expr.Member.Field]): Obj = {
     val cache = mutable.HashMap.empty[Any, Val]
-    val allKeys = new util.LinkedHashMap[String, java.lang.Boolean]
+    val allKeys = new SymbolMap[java.lang.Boolean](fields.size)
     fields.foreach {
       case Expr.Member.Field(_, Expr.FieldName.Fixed(k), _, _, _, rhs: Val.Literal) =>
         cache.put(k, rhs)

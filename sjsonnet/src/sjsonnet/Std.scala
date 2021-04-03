@@ -826,7 +826,7 @@ object Std {
             val transformedValue: Array[Val.Lazy] = values.map(v => (() => recursiveTransform(v)): Val.Lazy).toArray
             Val.Arr(pos, transformedValue)
           case ujson.Obj(valueMap) =>
-            val m = new java.util.LinkedHashMap[String, Val.Obj.Member]
+            val m = new SymbolMap[Val.Obj.Member](valueMap.size)
             valueMap.foreach { case (k, v) =>
               m.put(k, Val.Obj.Member(false, Expr.Member.Visibility.Normal, (_, _, _, _) => recursiveTransform(v)))
             }

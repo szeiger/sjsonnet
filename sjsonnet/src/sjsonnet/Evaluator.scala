@@ -188,8 +188,8 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
     val arr = new Array[Val.Lazy](argExprs.length)
     var idx = 0
     while (idx < argExprs.length) {
-      val boundIdx = idx
-      arr(idx) = () => visitExpr(argExprs(boundIdx))
+      val bound = argExprs(idx)
+      arr(idx) = () => visitExpr(bound)
       idx += 1
     }
 
@@ -460,7 +460,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
       if(binds == null) null
       else visitBindings(binds, (self, sup) => makeNewScope(self, sup))
 
-    val builder = new java.util.LinkedHashMap[String, Val.Obj.Member]
+    val builder = new SymbolMap[Val.Obj.Member](fields.length)
     fields.foreach {
       case Member.Field(offset, fieldName, plus, null, sep, rhs) =>
         val k = visitFieldName(fieldName, offset)
@@ -491,7 +491,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
     )
 
     lazy val newSelf: Val.Obj = {
-      val builder = new java.util.LinkedHashMap[String, Val.Obj.Member]
+      val builder = new SymbolMap[Val.Obj.Member]()
       for(s <- visitComp(first :: rest, Array(compScope))){
         lazy val newScope: ValScope = s.extend(
           binds,
