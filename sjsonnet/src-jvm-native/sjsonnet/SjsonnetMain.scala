@@ -131,46 +131,48 @@ object SjsonnetMain {
                      wd: os.Path,
                      allowedInputs: Option[Set[os.Path]] = None,
                      importer: Option[(Path, String) => Option[os.Path]] = None): Either[String, String] = {
+    val namer = Std.createNamer()
     val path = os.Path(file, wd)
-    var varBinding = Map.empty[String, ujson.Value]
+    var varBinding = Map.empty[Namer.Name, ujson.Value]
     config.extStr.map(_.split('=')).foreach{
-      case Array(x) => varBinding = varBinding ++ Seq(x -> ujson.Str(System.getenv(x)))
-      case Array(x, v) => varBinding = varBinding ++ Seq(x -> ujson.Str(v))
+      case Array(x) => varBinding = varBinding ++ Seq(namer(x) -> ujson.Str(System.getenv(x)))
+      case Array(x, v) => varBinding = varBinding ++ Seq(namer(x) -> ujson.Str(v))
     }
     config.extStrFile.map(_.split('=')).foreach {
       case Array(x, v) =>
-        varBinding = varBinding ++ Seq(x -> ujson.Str(os.read(os.Path(v, wd))))
+        varBinding = varBinding ++ Seq(namer(x) -> ujson.Str(os.read(os.Path(v, wd))))
     }
     config.extCode.map(_.split('=')).foreach {
-      case Array(x) => varBinding = varBinding ++ Seq(x -> ujson.read(System.getenv(x)))
-      case Array(x, v) => varBinding = varBinding ++ Seq(x -> ujson.read(v))
+      case Array(x) => varBinding = varBinding ++ Seq(namer(x) -> ujson.read(System.getenv(x)))
+      case Array(x, v) => varBinding = varBinding ++ Seq(namer(x) -> ujson.read(v))
     }
     config.extCodeFile.map(_.split('=')).foreach {
       case Array(x, v) =>
-        varBinding = varBinding ++ Seq(x -> ujson.read(os.read(os.Path(v, wd))))
+        varBinding = varBinding ++ Seq(namer(x) -> ujson.read(os.read(os.Path(v, wd))))
     }
 
-    var tlaBinding = Map.empty[String, ujson.Value]
+    var tlaBinding = Map.empty[Namer.Name, ujson.Value]
 
     config.tlaStr.map(_.split('=')).foreach{
-      case Array(x) => tlaBinding = tlaBinding ++ Seq(x -> ujson.Str(System.getenv(x)))
-      case Array(x, v) => tlaBinding = tlaBinding ++ Seq(x -> ujson.Str(v))
+      case Array(x) => tlaBinding = tlaBinding ++ Seq(namer(x) -> ujson.Str(System.getenv(x)))
+      case Array(x, v) => tlaBinding = tlaBinding ++ Seq(namer(x) -> ujson.Str(v))
     }
     config.tlaStrFile.map(_.split('=')).foreach {
       case Array(x, v) =>
-        tlaBinding = tlaBinding ++ Seq(x -> ujson.Str(os.read(os.Path(v, wd))))
+        tlaBinding = tlaBinding ++ Seq(namer(x) -> ujson.Str(os.read(os.Path(v, wd))))
     }
     config.tlaCode.map(_.split('=')).foreach {
-      case Array(x) => tlaBinding = tlaBinding ++ Seq(x -> ujson.read(System.getenv(x)))
-      case Array(x, v) => tlaBinding = tlaBinding ++ Seq(x -> ujson.read(v))
+      case Array(x) => tlaBinding = tlaBinding ++ Seq(namer(x) -> ujson.read(System.getenv(x)))
+      case Array(x, v) => tlaBinding = tlaBinding ++ Seq(namer(x) -> ujson.read(v))
     }
     config.tlaCodeFile.map(_.split('=')).foreach {
       case Array(x, v) =>
-        tlaBinding = tlaBinding ++ Seq(x -> ujson.read(os.read(os.Path(v, wd))))
+        tlaBinding = tlaBinding ++ Seq(namer(x) -> ujson.read(os.read(os.Path(v, wd))))
     }
     var currentPos: Position = null
     val interp = new Interpreter(
       parseCache,
+      namer,
       varBinding,
       tlaBinding,
       OsPath(wd),

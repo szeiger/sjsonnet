@@ -1,6 +1,7 @@
 package sjsonnet
 
 import java.util.BitSet
+import Namer.Name
 
 /**
   * [[Expr]]s are the parsed syntax trees of a Jsonnet program. They model the
@@ -25,7 +26,7 @@ object Expr{
   sealed trait FieldName
 
   object FieldName{
-    case class Fixed(value: String) extends FieldName
+    case class Fixed(value: Name) extends FieldName
     case class Dyn(expr: Expr) extends FieldName
   }
   sealed trait Member
@@ -50,8 +51,8 @@ object Expr{
   }
 
 
-  case class Params(names: Array[String], defaultExprs: Array[Expr], indices: Array[Int]){
-    val argIndices: Map[String, Int] = (names, indices).zipped.toMap
+  case class Params(names: Array[Name], defaultExprs: Array[Expr], indices: Array[Int]){
+    val argIndices: Map[Name, Int] = (names, indices).zipped.toMap
     val noDefaultIndices: BitSet = {
       val b = new BitSet(defaultExprs.size)
       (defaultExprs, indices).zipped.foreach((e, i) => if(e == null) b.set(i))
@@ -66,11 +67,11 @@ object Expr{
     }
   }
   object Params {
-    def mk(params: (String, Expr, Int)*): Params = {
-      Params(params.map(_._1).toArray, params.map(_._2).toArray, params.map(_._3).toArray)
+    def mk(params: (String, Expr, Int)*)(implicit namer: Namer): Params = {
+      Params(params.map(t => namer(t._1)).toArray, params.map(_._2).toArray, params.map(_._3).toArray)
     }
   }
-  case class Args(names: Array[String], exprs: Array[Expr])
+  case class Args(names: Array[Name], exprs: Array[Expr])
 
   case class UnaryOp(pos: Position, op: UnaryOp.Op, value: Expr) extends Expr
   object UnaryOp{
@@ -110,8 +111,8 @@ object Expr{
   case class Import(pos: Position, value: String) extends Expr
   case class ImportStr(pos: Position, value: String) extends Expr
   case class Error(pos: Position, value: Expr) extends Expr
-  case class Apply(pos: Position, value: Expr, argNames: Array[String], argExprs: Array[Expr]) extends Expr
-  case class Select(pos: Position, value: Expr, name: String) extends Expr
+  case class Apply(pos: Position, value: Expr, argNames: Array[Name], argExprs: Array[Expr]) extends Expr
+  case class Select(pos: Position, value: Expr, name: Name) extends Expr
   case class Lookup(pos: Position, value: Expr, index: Expr) extends Expr
   case class Slice(pos: Position,
                    value: Expr,

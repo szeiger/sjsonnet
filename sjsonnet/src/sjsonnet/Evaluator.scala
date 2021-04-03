@@ -4,6 +4,7 @@ import Expr.{Error => _, _}
 import fastparse.Parsed
 import sjsonnet.Expr.Member.Visibility
 import ujson.Value
+import Namer.Name
 
 import scala.collection.mutable
 
@@ -17,7 +18,8 @@ import scala.collection.mutable
   * `parseCache`.
   */
 class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[(Expr, FileScope)]],
-                val extVars: Map[String, ujson.Value],
+                val namer: Namer,
+                val extVars: Map[Name, ujson.Value],
                 val wd: Path,
                 importer: (Path, String) => Option[(Path, String)],
                 override val preserveOrder: Boolean = false,
@@ -43,7 +45,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
         if(scope.super0 == null) Val.False(pos)
         else {
           val key = visitExpr(lhs).cast[Val.Str]
-          Val.bool(pos, scope.super0.containsKey(key.value))
+          Val.bool(pos, scope.super0.containsKey(namer(key.value)))
         }
 
       case BinaryOp(pos, lhs, Expr.BinaryOp.`&&`, rhs) =>
@@ -182,7 +184,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
     }
   }
 
-  private def visitApply(pos: Position, value: Expr, argNames: Array[String], argExprs: Array[Expr])
+  private def visitApply(pos: Position, value: Expr, argNames: Array[Name], argExprs: Array[Expr])
                         (implicit scope: ValScope) = {
     val lhs = visitExpr(value)
     val arr = new Array[Val.Lazy](argExprs.length)
@@ -246,7 +248,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
       var s = scope.super0
       if(s == null) s = scope.self0
       if(s == null) Error.fail("Cannot use `super` outside an object", pos)
-      else s.value(key.value, pos)
+      else s.value(namer(key.value), pos)
     } else (visitExpr(value), visitExpr(index)) match {
       case (v: Val.Arr, i: Val.Num) =>
         if (i.value > v.value.length) Error.fail(s"array bounds error: ${i.value} not within [0, ${v.value.length})", pos)
@@ -256,7 +258,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
         catch Error.tryCatchWrap(pos)
       case (v: Val.Str, i: Val.Num) => Val.Str(pos, new String(Array(v.value(i.value.toInt))))
       case (v: Val.Obj, i: Val.Str) =>
-        val ref = v.value(i.value, pos)
+        val ref = v.value(namer(i.value), pos)
         try ref
         catch Error.tryCatchWrap(pos)
       case (lhs, rhs) =>
@@ -264,13 +266,13 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
     }
   }
 
-  def visitSelect(pos: Position, value: Expr, name: String)(implicit scope: ValScope): Val = {
+  def visitSelect(pos: Position, value: Expr, name: Name)(implicit scope: ValScope): Val = {
     if (value.isInstanceOf[Super]) {
       if(scope.super0 == null) Error.fail("Cannot use `super` outside an object", pos)
       else  scope.super0.value(name, pos, scope.self0)
     } else visitExpr(value) match {
       case obj: Val.Obj => obj.value(name, pos)
-      case r => Error.fail(s"attempted to index a ${r.prettyName} with string ${name}", pos)
+      case r => Error.fail(s"attempted to index a ${r.prettyName} with string ${namer.name(name)}", pos)
     }
   }
 
@@ -287,7 +289,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
       {
         val (doc, newFileScope) = parseCache.getOrElseUpdate(
           str,
-          fastparse.parse(str, new Parser(p).document(_))
+          fastparse.parse(str, new Parser(p, namer).document(_))
         ) match {
           case Parsed.Success((doc, nameIndices), _) => (doc, nameIndices)
           case f @ Parsed.Failure(l, i, e) =>
@@ -371,7 +373,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
 
       case (Val.Num(_, l), Expr.BinaryOp.`>>`, Val.Num(_, r)) => Val.Num(pos, l.toLong >> r.toLong)
 
-      case (Val.Str(_, l), Expr.BinaryOp.`in`, o: Val.Obj) => Val.bool(pos, o.containsKey(l))
+      case (Val.Str(_, l), Expr.BinaryOp.`in`, o: Val.Obj) => Val.bool(pos, o.containsKey(namer(l)))
 
       case (Val.Num(_, l), Expr.BinaryOp.`&`, Val.Num(_, r)) => Val.Num(pos, l.toLong & r.toLong)
 
@@ -384,12 +386,12 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
     }
   }
 
-  def visitFieldName(fieldName: FieldName, pos: Position)(implicit scope: ValScope): String = {
+  def visitFieldName(fieldName: FieldName, pos: Position)(implicit scope: ValScope): Name = {
     fieldName match {
       case FieldName.Fixed(s) => s
       case FieldName.Dyn(k) => visitExpr(k) match{
-        case Val.Str(_, k1) => k1
-        case Val.Null(_) => null
+        case Val.Str(_, k1) => namer(k1)
+        case Val.Null(_) => Namer.NoName
         case x => Error.fail(
           s"Field name must be string or null, not ${x.prettyName}",
           pos
@@ -460,11 +462,11 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
       if(binds == null) null
       else visitBindings(binds, (self, sup) => makeNewScope(self, sup))
 
-    val builder = new java.util.LinkedHashMap[String, Val.Obj.Member]
+    val builder = new java.util.LinkedHashMap[Name, Val.Obj.Member]
     fields.foreach {
       case Member.Field(offset, fieldName, plus, null, sep, rhs) =>
         val k = visitFieldName(fieldName, offset)
-        if(k != null) {
+        if(k != 0) {
           val v = Val.Obj.Member(plus, sep, (self: Val.Obj, sup: Val.Obj, _, _) => {
             if(asserts != null) assertions(self)
             visitExpr(rhs)(makeNewScope(self, sup))
@@ -473,7 +475,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
         }
       case Member.Field(offset, fieldName, false, argSpec, sep, rhs) =>
         val k = visitFieldName(fieldName, offset)
-        if(k != null) {
+        if(k != 0) {
           val v = Val.Obj.Member(false, sep, (self: Val.Obj, sup: Val.Obj, _, _) => {
             if(asserts != null) assertions(self)
             visitMethod(rhs, argSpec, offset)(makeNewScope(self, sup))
@@ -491,7 +493,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
     )
 
     lazy val newSelf: Val.Obj = {
-      val builder = new java.util.LinkedHashMap[String, Val.Obj.Member]
+      val builder = new java.util.LinkedHashMap[Name, Val.Obj.Member]
       for(s <- visitComp(first :: rest, Array(compScope))){
         lazy val newScope: ValScope = s.extend(
           binds,
@@ -505,7 +507,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
 
         visitExpr(key)(s) match {
           case Val.Str(_, k) =>
-            builder.put(k, Val.Obj.Member(false, Visibility.Normal, (self: Val.Obj, sup: Val.Obj, _, _) =>
+            builder.put(namer(k), Val.Obj.Member(false, Visibility.Normal, (self: Val.Obj, sup: Val.Obj, _, _) =>
               visitExpr(value)(
                 s.extend(
                   binds,
@@ -553,7 +555,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
 
   def equal(x: Val, y: Val): Boolean = (x eq y) || {
     def normalize(x: Val): Val = x match {
-      case f: Val.Func => f.apply(Evaluator.emptyStringArray, Evaluator.emptyLazyArray, emptyMaterializeFileScopePos)
+      case f: Val.Func => f.apply(Evaluator.emptyNameArray, Evaluator.emptyLazyArray, emptyMaterializeFileScopePos)
       case x => x
     }
     (normalize(x), normalize(y)) match {
@@ -593,5 +595,6 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
 
 object Evaluator {
   val emptyStringArray = new Array[String](0)
+  val emptyNameArray = new Array[Name](0)
   val emptyLazyArray = new Array[Val.Lazy](0)
 }

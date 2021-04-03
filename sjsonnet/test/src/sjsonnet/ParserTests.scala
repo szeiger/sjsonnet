@@ -4,8 +4,9 @@ import Expr._
 import fastparse.Parsed
 import Val.{True, Num}
 object ParserTests extends TestSuite{
-  def parse(s: String) = fastparse.parse(s, new Parser(null).document(_)).get.value._1
-  def parseErr(s: String) = fastparse.parse(s, new Parser(null).document(_), verboseFailures = true).asInstanceOf[Parsed.Failure].msg
+  val namer = Std.createNamer()
+  def parse(s: String) = fastparse.parse(s, new Parser(null, namer).document(_)).get.value._1
+  def parseErr(s: String) = fastparse.parse(s, new Parser(null, namer).document(_), verboseFailures = true).asInstanceOf[Parsed.Failure].msg
   val dummyFS = new FileScope(null, Map.empty)
   def pos(i: Int) = new Position(dummyFS, i)
   def tests = Tests{

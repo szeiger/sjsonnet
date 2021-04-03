@@ -5,10 +5,12 @@ import utest._
 object FileTests extends TestSuite{
   val testSuiteRoot = os.pwd / "sjsonnet" / "test" / "resources" / "test_suite"
   def eval(p: os.Path) = {
+    val namer = Std.createNamer()
     val interp = new Interpreter(
       sjsonnet.SjsonnetMain.createParseCache(),
-      Map("var1" -> "test", "var2" -> ujson.Obj("x" -> 1, "y" -> 2)),
-      Map("var1" -> "test", "var2" -> ujson.Obj("x" -> 1, "y" -> 2)),
+      namer,
+      Map(namer("var1") -> "test", namer("var2") -> ujson.Obj("x" -> 1, "y" -> 2)),
+      Map(namer("var1") -> "test", namer("var2") -> ujson.Obj("x" -> 1, "y" -> 2)),
       OsPath(testSuiteRoot),
       importer = sjsonnet.SjsonnetMain.resolveImport(Array(OsPath(testSuiteRoot))),
     )

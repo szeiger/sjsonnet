@@ -90,7 +90,7 @@ object Error {
 }
 
 trait EvalErrorScope {
-  def extVars: Map[String, ujson.Value]
+  def extVars: Map[Namer.Name, ujson.Value]
   def loadCachedSource(p: Path): Option[String]
   def wd: Path
 }

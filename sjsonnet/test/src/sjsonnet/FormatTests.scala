@@ -8,16 +8,16 @@ object FormatTests extends TestSuite{
 
   def check(fmt: String, jsonStr: String, expected: String) = {
     val json = ujson.read(jsonStr)
-    val formatted = Format.format(fmt, Materializer.reverse(null, json), dummyPos)(
-      new EvalScope{
-        def extVars: Map[String, Value] = Map()
-        def loadCachedSource(p: Path): Option[String] = None
-        def wd: Path = DummyPath()
-        def visitExpr(expr: Expr)(implicit scope: ValScope): Val = ???
-        def materialize(v: Val): Value = ???
-        def equal(x: Val, y: Val): Boolean = ???
-      }
-    )
+    val ev = new EvalScope {
+      val namer = Std.createNamer()
+      def extVars: Map[Namer.Name, Value] = Map()
+      def loadCachedSource(p: Path): Option[String] = None
+      def wd: Path = DummyPath()
+      def visitExpr(expr: Expr)(implicit scope: ValScope): Val = ???
+      def materialize(v: Val): Value = ???
+      def equal(x: Val, y: Val): Boolean = ???
+    }
+    val formatted = Format.format(fmt, Materializer.reverse(null, json)(ev), dummyPos)(ev)
     assert(formatted == expected)
   }
 

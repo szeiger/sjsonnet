@@ -4,6 +4,7 @@ import java.io.{PrintWriter, StringWriter}
 
 import fastparse.Parsed
 import sjsonnet.Expr.Params
+import Namer.Name
 
 import scala.util.control.NonFatal
 
@@ -12,8 +13,9 @@ import scala.util.control.NonFatal
   * evaluation to materialization, into a convenient wrapper class.
   */
 class Interpreter(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[(Expr, FileScope)]],
-                  extVars: Map[String, ujson.Value],
-                  tlaVars: Map[String, ujson.Value],
+                  namer: Namer,
+                  extVars: Map[Name, ujson.Value],
+                  tlaVars: Map[Name, ujson.Value],
                   wd: Path,
                   importer: (Path, String) => Option[(Path, String)],
                   preserveOrder: Boolean = false,
@@ -22,6 +24,7 @@ class Interpreter(parseCache: collection.mutable.HashMap[String, fastparse.Parse
 
   val evaluator = new Evaluator(
     parseCache,
+    namer,
     extVars,
     wd,
     importer,
@@ -36,7 +39,7 @@ class Interpreter(parseCache: collection.mutable.HashMap[String, fastparse.Parse
                     path: Path,
                     visitor: upickle.core.Visitor[T, T]): Either[String, T] = {
     for{
-      res <- parseCache.getOrElseUpdate(txt, fastparse.parse(txt, new Parser(path).document(_))) match{
+      res <- parseCache.getOrElseUpdate(txt, fastparse.parse(txt, new Parser(path, namer).document(_))) match{
         case f @ Parsed.Failure(l, i, e) => Left("Parse error: " + f.trace().msg)
         case Parsed.Success(r, index) => Right(r)
       }

@@ -7,6 +7,7 @@ object ErrorTestsJvmOnly extends TestSuite {
   def eval(p: os.Path) = {
     val interp = new Interpreter(
       sjsonnet.SjsonnetMain.createParseCache(),
+      Std.createNamer(),
       Map(),
       Map(),
       OsPath(os.pwd),

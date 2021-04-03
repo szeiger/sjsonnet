@@ -4,6 +4,7 @@ import java.util
 
 import sjsonnet.Expr.Member.Visibility
 import sjsonnet.Expr.Params
+import Namer.Name
 
 import scala.annotation.tailrec
 import scala.collection.mutable
@@ -80,26 +81,31 @@ object Val{
                       invoke: (Obj, Obj, FileScope, EvalScope) => Val,
                       cached: Boolean = true)
 
-    def mk(pos: Position, members: (String, Obj.Member)*): Obj = {
-      val m = new util.LinkedHashMap[String, Obj.Member]()
+    def mk(pos: Position, members: (Name, Obj.Member)*): Obj = {
+      val m = new util.LinkedHashMap[Name, Obj.Member]()
       for((k, v) <- members) m.put(k, v)
+      new Obj(pos, m, false, null, null)
+    }
+    def mk(pos: Position, members: (String, Obj.Member)*)(implicit namer: Namer): Obj = {
+      val m = new util.LinkedHashMap[Name, Obj.Member]()
+      for((k, v) <- members) m.put(namer(k), v)
       new Obj(pos, m, false, null, null)
     }
   }
 
   final class Obj(val pos: Position,
-                  private[this] var value0: util.LinkedHashMap[String, Obj.Member],
+                  private[this] var value0: util.LinkedHashMap[Name, Obj.Member],
                   static: Boolean,
                   triggerAsserts: Val.Obj => Unit,
                   `super`: Obj,
                   valueCache: mutable.HashMap[Any, Val] = mutable.HashMap.empty[Any, Val],
-                  private[this] var allKeys: util.LinkedHashMap[String, java.lang.Boolean] = null) extends Literal with Expr.ObjBody {
+                  private[this] var allKeys: util.LinkedHashMap[Name, java.lang.Boolean] = null) extends Literal with Expr.ObjBody {
 
     def getSuper = `super`
 
-    private[this] def getValue0: util.LinkedHashMap[String, Obj.Member] = {
+    private[this] def getValue0: util.LinkedHashMap[Name, Obj.Member] = {
       if(value0 == null) {
-        value0 = new java.util.LinkedHashMap[String, Val.Obj.Member]
+        value0 = new java.util.LinkedHashMap[Name, Val.Obj.Member]
         allKeys.forEach { (k, _) =>
           val v = valueCache(k)
           val m = Val.Obj.Member(false, Visibility.Normal, (self: Val.Obj, sup: Val.Obj, _, _) => v)
@@ -123,7 +129,7 @@ object Val{
 
     def prettyName = "object"
 
-    private def gatherKeys(mapping: util.LinkedHashMap[String, java.lang.Boolean]): Unit = {
+    private def gatherKeys(mapping: util.LinkedHashMap[Name, java.lang.Boolean]): Unit = {
       if(`super` != null) `super`.gatherKeys(mapping)
       getValue0.forEach { (k, m) =>
         val vis = m.visibility
@@ -135,7 +141,7 @@ object Val{
 
     private def getAllKeys = {
       if(allKeys == null) {
-        allKeys = new util.LinkedHashMap[String, java.lang.Boolean]
+        allKeys = new util.LinkedHashMap[Name, java.lang.Boolean]
         gatherKeys(allKeys)
       }
       allKeys
@@ -143,19 +149,27 @@ object Val{
 
     @inline def hasKeys = !getAllKeys.isEmpty
 
-    @inline def containsKey(k: String): Boolean = getAllKeys.containsKey(k)
+    @inline def containsKey(k: Name): Boolean = getAllKeys.containsKey(k)
 
-    @inline def containsVisibleKey(k: String): Boolean = getAllKeys.get(k) == java.lang.Boolean.FALSE
+    @inline def containsVisibleKey(k: Name): Boolean = getAllKeys.get(k) == java.lang.Boolean.FALSE
 
-    lazy val allKeyNames: Array[String] = getAllKeys.keySet().toArray(new Array[String](getAllKeys.size()))
+    lazy val allKeyNames: Array[Name] = {
+      val a = new Array[Name](getAllKeys.size())
+      var i = 0
+      getAllKeys.keySet().forEach { n =>
+        a(i) = n
+        i += 1
+      }
+      a
+    }
 
-    lazy val visibleKeyNames: Array[String] = if(static) allKeyNames else {
-      val buf = mutable.ArrayBuilder.make[String]
+    lazy val visibleKeyNames: Array[Name] = if(static) allKeyNames else {
+      val buf = mutable.ArrayBuilder.make[Name]
       getAllKeys.forEach((k, b) => if(b == java.lang.Boolean.FALSE) buf += k)
       buf.result()
     }
 
-    def value(k: String,
+    def value(k: Name,
               pos: Position,
               self: Obj = this)
              (implicit evaluator: EvalScope): Val = {
@@ -164,7 +178,7 @@ object Val{
 
       valueCache.getOrElse(cacheKey, {
         valueRaw(k, self, pos, valueCache, cacheKey) match {
-          case null => Error.fail("Field does not exist: " + k, pos)
+          case null => Error.fail("Field does not exist: " + evaluator.namer.name(k), pos)
           case x => x
         }
       })
@@ -200,7 +214,7 @@ object Val{
       } else throw new MatchError((l, r))
     }
 
-    def valueRaw(k: String,
+    def valueRaw(k: Name,
                  self: Obj,
                  pos: Position,
                  addTo: mutable.HashMap[Any, Val] = null,
@@ -226,7 +240,7 @@ object Val{
 
   def staticObject(pos: Position, fields: Array[Expr.Member.Field]): Obj = {
     val cache = mutable.HashMap.empty[Any, Val]
-    val allKeys = new util.LinkedHashMap[String, java.lang.Boolean]
+    val allKeys = new util.LinkedHashMap[Name, java.lang.Boolean]
     fields.foreach {
       case Expr.Member.Field(_, Expr.FieldName.Fixed(k), _, _, _, rhs: Val.Literal) =>
         cache.put(k, rhs)
@@ -243,7 +257,7 @@ object Val{
 
     def prettyName = "function"
 
-    def apply(argNames: Array[String], argVals: Array[Lazy],
+    def apply(argNames: Array[Name], argVals: Array[Lazy],
               outerPos: Position)
              (implicit evaluator: EvalScope) = {
 
@@ -255,9 +269,9 @@ object Val{
         try {
           while (i < argsSize) {
             val aname = argNames(i)
-            arrI(i) = if(aname != null) params.argIndices.getOrElse(
+            arrI(i) = if(aname != Namer.NoName) params.argIndices.getOrElse(
               aname,
-              Error.fail(s"Function has no parameter $aname", outerPos)
+              Error.fail(s"Function has no parameter ${evaluator.namer.name(aname)}", outerPos)
             ) else params.indices(i)
             i += 1
           }
@@ -367,6 +381,8 @@ trait EvalScope extends EvalErrorScope{
   def materialize(v: Val): ujson.Value
 
   def equal(x: Val, y: Val): Boolean
+
+  def namer: Namer
 
   val emptyMaterializeFileScope = new FileScope(wd / "(materialize)", Map())
   val emptyMaterializeFileScopePos = new Position(emptyMaterializeFileScope, -1)

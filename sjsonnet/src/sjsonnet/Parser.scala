@@ -3,6 +3,7 @@ package sjsonnet
 import fastparse.JsonnetWhitespace._
 import fastparse._
 import Expr.Member.Visibility
+import Namer.Name
 
 import scala.annotation.switch
 import scala.collection.mutable
@@ -42,9 +43,11 @@ object Parser {
   def idStartChar(c: Char) = c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
 
   private val emptyExprArray = new Array[Expr](0)
+  private val emptyNameArray = new Array[Name](0)
+  private val emptyIntArray = new Array[Int](0)
 }
 
-class Parser(val currentFile: Path) {
+class Parser(val currentFile: Path, namer: Namer) {
   import Parser._
 
   private val nameIndices = new mutable.HashMap[String, Int]
@@ -207,7 +210,7 @@ class Parser(val currentFile: Path) {
     Pos.flatMapX{i =>
       CharIn(".[({")./.!.map(_(0)).flatMapX{ c =>
         (c: @switch) match{
-          case '.' => Pass ~ id.map(x => Expr.Select(i, _: Expr, x))
+          case '.' => Pass ~ id.map(x => Expr.Select(i, _: Expr, namer(x)))
           case '[' => Pass ~ (expr.? ~ (":" ~ expr.?).rep ~ "]").map{
             case (Some(tree), Seq()) => Expr.Lookup(i, _: Expr, tree)
             case (start, ins) => Expr.Slice(i, _: Expr, start, ins.lift(0).flatten, ins.lift(1).flatten)
@@ -289,16 +292,16 @@ class Parser(val currentFile: Path) {
   def objinside[_: P]: P[Expr.ObjBody] = P(
     Pos ~ member.rep(sep = ",") ~ ",".? ~ (forspec ~ compspec).?
   ).flatMap { case t @ (pos, exprs, _) =>
-    val seen = collection.mutable.Set.empty[String]
-    var overlap: String = null
+    val seen = collection.mutable.Set.empty[Name]
+    var overlap: Name = Namer.NoName
     exprs.foreach {
       case Expr.Member.Field(_, Expr.FieldName.Fixed(n), _, _, _, _) =>
         if(seen(n)) overlap = n
         else seen.add(n)
       case _ =>
     }
-    if (overlap == null) Pass(t)
-    else Fail.opaque("no duplicate field: " + overlap)
+    if (overlap == Namer.NoName) Pass(t)
+    else Fail.opaque("no duplicate field: " + namer.name(overlap))
   }.map{
     case (pos, exprs, None) =>
       val binds = {
@@ -353,8 +356,8 @@ class Parser(val currentFile: Path) {
     P( Pos ~~ "for" ~~ break ~/ id.map(indexFor(_)) ~ "in" ~~ break ~ expr ).map(Expr.ForSpec.tupled)
   def ifspec[_: P] = P( Pos ~~ "if" ~~ break  ~/ expr ).map(Expr.IfSpec.tupled)
   def fieldname[_: P] = P(
-    id.map(Expr.FieldName.Fixed) |
-    string.map(Expr.FieldName.Fixed) |
+    id.map(s => Expr.FieldName.Fixed(namer(s))) |
+    string.map(s => Expr.FieldName.Fixed(namer(s))) |
     "[" ~ expr.map(Expr.FieldName.Dyn) ~ "]"
   )
   def assertStmt[_: P] =
@@ -366,24 +369,27 @@ class Parser(val currentFile: Path) {
   def args[_: P] = P( ((id ~ "=").? ~ expr).rep(sep = ",") ~ ",".? ).flatMapX{ x =>
     if (x.sliding(2).exists{case Seq(l, r) => l._1.isDefined && r._1.isEmpty case _ => false}) {
       Fail.opaque("no positional params after named params")
-    } else Pass(Expr.Args(x.map(_._1.getOrElse(null)).toArray, x.map(_._2).toArray))
+    } else Pass(Expr.Args(x.map(t => namer(t._1.getOrElse(null))).toArray, x.map(_._2).toArray))
   }
 
   def params[_: P]: P[Expr.Params] = P( (id ~ ("=" ~ expr).?).rep(sep = ",") ~ ",".? ).flatMapX{ x =>
-    val seen = collection.mutable.Set.empty[String]
-    var overlap: String = null
-    for((k, v) <- x){
-      if (seen(k)) overlap = k
-      else seen.add(k)
+    if(x.isEmpty) {
+      Pass(Expr.Params(emptyNameArray, emptyExprArray, emptyIntArray))
+    } else {
+      val seen = collection.mutable.Set.empty[String]
+      var overlap: String = null
+      for((k, v) <- x){
+        if (seen(k)) overlap = k
+        else seen.add(k)
+      }
+      if (overlap == null) {
+        val names = x.map(t => namer(t._1)).toArray[Name]
+        val exprs = x.map(_._2.getOrElse(null)).toArray[Expr]
+        val idxs = names.map(n => indexFor(namer.name(n)))
+        Pass(Expr.Params(names, exprs, idxs))
+      }
+      else Fail.opaque("no duplicate parameter: " + overlap)
     }
-    if (overlap == null) {
-      val names = x.map(_._1).toArray[String]
-      val exprs = x.map(_._2.getOrElse(null)).toArray[Expr]
-      val idxs = names.map(indexFor)
-      Pass(Expr.Params(names, exprs, idxs))
-    }
-    else Fail.opaque("no duplicate parameter: " + overlap)
-
   }
 
   def binaryop[_: P] = P(
@@ -409,21 +415,14 @@ class Parser(val currentFile: Path) {
     *
     * The Jsonnet standard library `std` always lives at slot 0.
     */
-  def indexFor[_: P](name: String): Int = {
-    nameIndices.get(name) match{
-      case None =>
-        val index = nameIndices.size
-        nameIndices(name) = index
-        index
-      case Some(index) => index
-    }
-  }
+  def indexFor[_: P](name: String): Int =
+    nameIndices.getOrElseUpdate(name, nameIndices.size)
 }
 
 class Position(val fileScope: FileScope, val offset: Int) {
   def currentFile = fileScope.currentFile
   override def equals(o: Any) = o match {
-    case o: Position => currentFile == o.currentFile && offset == o.offset
+    case o: Position => offset == o.offset && currentFile == o.currentFile
     case _ => false
   }
   override def toString = s"Position($fileScope, $offset)"

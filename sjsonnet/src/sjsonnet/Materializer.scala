@@ -43,7 +43,7 @@ object Materializer {
         obj.triggerAllAsserts(obj)
 
         val keysUnsorted = obj.visibleKeyNames
-        val keys = if (!evaluator.preserveOrder) keysUnsorted.sorted else keysUnsorted
+        val keys = if (!evaluator.preserveOrder) keysUnsorted.sortBy(evaluator.namer.name) else keysUnsorted
         val objVisitor = visitor.visitObject(keys.length , -1)
 
         for(k <- keys) {
@@ -56,7 +56,7 @@ object Materializer {
               case _ => null
             }
           )
-          objVisitor.visitKeyValue(objVisitor.visitKey(-1).visitString(k, -1))
+          objVisitor.visitKeyValue(objVisitor.visitKey(-1).visitString(evaluator.namer.name(k), -1))
 
 
 
@@ -69,7 +69,7 @@ object Materializer {
 
       case f: Val.Func =>
         apply0(
-          f.apply(emptyStringArray, emptyLazyArray, evaluator.emptyMaterializeFileScopePos),
+          f.apply(emptyNameArray, emptyLazyArray, evaluator.emptyMaterializeFileScopePos),
           visitor,
           storePos
         )
@@ -79,7 +79,7 @@ object Materializer {
     throw Error.Delegate("Stackoverflow while materializing, possibly due to recursive value")
   }
 
-  def reverse(pos: Position, v: ujson.Value): Val = v match{
+  def reverse(pos: Position, v: ujson.Value)(implicit evaluator: EvalScope): Val = v match{
     case ujson.True => Val.True(pos)
     case ujson.False => Val.False(pos)
     case ujson.Null => Val.Null(pos)
@@ -87,12 +87,12 @@ object Materializer {
     case ujson.Str(s) => Val.Str(pos, s)
     case ujson.Arr(xs) => Val.Arr(pos, xs.map(x => (() => reverse(pos, x)): Val.Lazy).toArray[Val.Lazy])
     case ujson.Obj(xs) =>
-      val builder = new java.util.LinkedHashMap[String, Val.Obj.Member]
+      val builder = new java.util.LinkedHashMap[Namer.Name, Val.Obj.Member]
       for(x <- xs) {
         val v = Val.Obj.Member(false, Visibility.Normal,
           (_: Val.Obj, _: Val.Obj, _, _) => reverse(pos, x._2)
         )
-        builder.put(x._1, v)
+        builder.put(evaluator.namer(x._1), v)
       }
       new Val.Obj(pos, builder, false, null, null)
   }
@@ -109,12 +109,13 @@ object Materializer {
         ev.emptyMaterializeFileScopePos,
         null,
         for((k, v) <- kvs.toArray)
-          yield Member.Field(ev.emptyMaterializeFileScopePos, FieldName.Fixed(k), false, null, Visibility.Normal, toExpr(v)),
+          yield Member.Field(ev.emptyMaterializeFileScopePos, FieldName.Fixed(ev.namer(k)), false, null, Visibility.Normal, toExpr(v)),
         null
       )
   }
 
   val emptyStringArray = new Array[String](0)
   val emptyLazyArray = new Array[Lazy](0)
+  val emptyNameArray = new Array[Namer.Name](0)
 
 }
