@@ -9,6 +9,8 @@ import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.reflect.ClassTag
 
+import jdk.incubator.vector._
+
 /**
   * [[Val]]s represented Jsonnet values that are the result of evaluating
   * a Jsonnet program. The [[Val]] data structure is essentially a JSON tree,
@@ -45,6 +47,18 @@ object Val{
     final def force: Val = {
       if(cached == null) cached = compute()
       cached
+    }
+  }
+
+  abstract class LazyArr(val length: Int) {
+    def compute(i: Int): Val
+    private[this] final val cached: Array[Val] = new Array[Val](length)
+    final def force(i: Int): Val = {
+      if(cached(i) == null) {
+        val v = compute(i)
+        cached(i) = v
+        v
+      } else cached(i)
     }
   }
 
@@ -243,7 +257,7 @@ object Val{
 
     def prettyName = "function"
 
-    def apply(argNames: Array[String], argVals: Array[Lazy],
+    def apply(argNames: Array[String], argVals: Array[Val.Lazy],
               outerPos: Position)
              (implicit evaluator: EvalScope) = {
 
@@ -392,6 +406,11 @@ object ValScope{
                    newBindingsV1: Array[Val.Lazy],
                    newBindingsI2: Array[Int],
                    newBindingsV2: Array[Val.Lazy]) = {
+
+    val sp = IntVector.SPECIES_PREFERRED
+    val vi1 = IntVector.fromArray(sp, newBindingsI1, 0)
+    vi1.rearrange()
+
     val arr = new Array[Val.Lazy](newBindingsV1.length + newBindingsV2.length)
     var i = 0
     while(i < newBindingsV1.length) {
@@ -427,7 +446,10 @@ class ValScope(val dollar0: Val.Obj,
                val super0: Val.Obj,
                bindings0: Array[Val.Lazy]) {
 
-  def bindings(k: Int): Val.Lazy = bindings0(k)
+  def force(k: Int): Val = {
+    val l = bindings0(k)
+    if(l == null) null else l.force
+  }
 
   def extend(newBindingsI: Array[Expr.Bind] = null,
              newBindingsF: Array[(Val.Obj, Val.Obj) => Val.Lazy] = null,

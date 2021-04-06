@@ -136,10 +136,10 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
   }
 
   def visitId(pos: Position, value: Int)(implicit scope: ValScope): Val = {
-    val ref = scope.bindings(value)
-    if(ref == null)
+    val v = try scope.force(value) catch Error.tryCatchWrap(pos)
+    if(v == null)
       Error.fail("Unknown variable " + pos.fileScope.indexNames(value), pos)
-    try ref.force catch Error.tryCatchWrap(pos)
+    else v
   }
 
   def visitIfElse(pos: Position,
@@ -188,8 +188,8 @@ class Evaluator(parseCache: collection.mutable.HashMap[String, fastparse.Parsed[
     val arr = new Array[Val.Lazy](argExprs.length)
     var idx = 0
     while (idx < argExprs.length) {
-      val boundIdx = idx
-      arr(idx) = () => visitExpr(argExprs(boundIdx))
+      val bound = argExprs(idx)
+      arr(idx) = () => visitExpr(bound)
       idx += 1
     }
 
