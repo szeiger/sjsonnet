@@ -33,7 +33,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[(Path, String), fastparse
   def visitExpr(expr: Expr)
                (implicit scope: ValScope): Val = try {
     expr match {
-      case lit: Val.Literal => lit
+      case lit: Val => lit
       case Self(pos) =>
         val self = scope.self0
         if(self == null) Error.fail("Cannot use `self` outside an object", pos)
@@ -80,7 +80,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[(Path, String), fastparse
         dollar
       case Id(pos, value) => visitId(pos, value)
 
-      case Arr(pos, value) => new Val.Arr(pos, value.map(v => (() => visitExpr(v)): Val.Lazy))
+      case Arr(pos, value) => new Val.LazyArr(pos, value.map(v => (() => visitExpr(v)): Val.Lazy))
       case ObjBody.MemberList(pos, binds, fields, asserts) => visitMemberList(pos, pos, binds, fields, asserts, null)
       case ObjBody.ObjComp(pos, preLocals, key, value, postLocals, first, rest) => visitObjComp(pos, preLocals, key, value, postLocals, first, rest, null)
 
@@ -113,7 +113,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[(Path, String), fastparse
       case Function(pos, params, body) => visitMethod(body, params, pos)
       case IfElse(pos, cond, then0, else0) => visitIfElse(pos, cond, then0, else0)
       case Comp(pos, value, first, rest) =>
-        new Val.Arr(pos, visitComp(first :: rest.toList, Array(scope)).map(s => (() => visitExpr(value)(s)): Val.Lazy))
+        new Val.LazyArr(pos, visitComp(first :: rest.toList, Array(scope)).map(s => (() => visitExpr(value)(s)): Val.Lazy))
       case ObjExtend(superPos, value, ext) => {
         if(strict && isObjLiteral(value))
           Error.fail("Adjacent object literals not allowed in strict mode - Use '+' to concatenate objects", superPos)

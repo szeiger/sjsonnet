@@ -85,7 +85,7 @@ object Materializer {
     case ujson.Null => Val.Null(pos)
     case ujson.Num(n) => Val.Num(pos, n)
     case ujson.Str(s) => Val.Str(pos, s)
-    case ujson.Arr(xs) => new Val.Arr(pos, xs.map(x => (() => reverse(pos, x)): Val.Lazy).toArray[Val.Lazy])
+    case ujson.Arr(xs) => new Val.LazyArr(pos, xs.map(x => (() => reverse(pos, x)): Val.Lazy).toArray[Val.Lazy])
     case ujson.Obj(xs) =>
       val builder = new java.util.LinkedHashMap[String, Val.Obj.Member]
       for(x <- xs) {

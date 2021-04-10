@@ -87,22 +87,56 @@ object Val{
     override def asDouble: Double = value
   }
 
-  class Arr(val pos: Position, private val value: Array[Lazy]) extends Val{
+  sealed abstract class Arr extends Val {
     def prettyName = "array"
     override def asArr: Arr = this
+
+    def length: Int
+    def get(i: Int): Lazy
+    def force(i: Int): Val
+    def asLazyArray: Array[Lazy]
+    def asStrictArray: Array[Val]
+
+    def concat(newPos: Position, rhs: Arr): Arr
+    def slice(start: Int, end: Int, stride: Int): Arr
+    def filterLazy(newPos: Position, f: Lazy => Boolean): Arr
+    def mapLazy(newPos: Position, f: Lazy => Lazy): Arr
+    def mapLazyWithIndex(newPos: Position, f: (Lazy, Int) => Lazy): Arr
+    def iterator: Iterator[Val]
+    def foreach[U](f: Val => U): Unit
+    def forall(f: Val => Boolean): Boolean
+  }
+
+  class LazyArr(val pos: Position, private val value: Array[Lazy]) extends Arr {
     def length: Int = value.length
     def force(i: Int) = value(i).force
+    def get(i: Int) = value(i)
 
-    def asLazy(i: Int) = value(i)
     def asLazyArray: Array[Lazy] = value
     def asStrictArray: Array[Val] = value.map(_.force)
 
     def concat(newPos: Position, rhs: Arr): Arr =
-      new Arr(newPos, value ++ rhs.value)
+      new LazyArr(newPos, value ++ rhs.asLazyArray)
 
     def slice(start: Int, end: Int, stride: Int): Arr = {
       val range = start until end by stride
-      new Arr(pos, range.dropWhile(_ < 0).takeWhile(_ < value.length).map(value).toArray)
+      new LazyArr(pos, range.dropWhile(_ < 0).takeWhile(_ < value.length).map(value).toArray)
+    }
+
+    def filterLazy(newPos: Position, f: Lazy => Boolean): Arr = new LazyArr(newPos, value.filter(f))
+
+    def mapLazy(newPos: Position, f: Lazy => Lazy): Arr = new LazyArr(newPos, value.map(f))
+
+    def mapLazyWithIndex(newPos: Position, f: (Lazy, Int) => Lazy): Arr = {
+      var i = 0
+      val a = new Array[Lazy](value.length)
+      while(i < a.length) {
+        val boundI = i
+        val x = value(i)
+        a(i) = f(x, boundI)
+        i += 1
+      }
+      new LazyArr(newPos, a)
     }
 
     def iterator: Iterator[Val] = value.iterator.map(_.force)
@@ -117,6 +151,58 @@ object Val{
       var i = 0
       while(i < value.length) {
         if(!f(value(i).force)) return false
+        i += 1
+      }
+      true
+    }
+  }
+
+  class StrictArr(val pos: Position, private val value: Array[Val]) extends Arr with Expr {
+    def length: Int = value.length
+    def force(i: Int) = value(i)
+    def get(i: Int) = () => value(i)
+
+    def asLazyArray: Array[Lazy] = value.map(() => _)
+    def asStrictArray: Array[Val] = value
+
+    def concat(newPos: Position, rhs: Arr): Arr = rhs match {
+      case rhs: StrictArr => new StrictArr(newPos, value ++ rhs.value)
+      case rhs: LazyArr => new LazyArr(newPos, asLazyArray ++ rhs.asLazyArray)
+    }
+
+    def slice(start: Int, end: Int, stride: Int): Arr = {
+      val range = start until end by stride
+      new StrictArr(pos, range.dropWhile(_ < 0).takeWhile(_ < value.length).map(value).toArray)
+    }
+
+    def filterLazy(newPos: Position, f: Lazy => Boolean): Arr = new StrictArr(newPos, value.filter(v => f(() => v)))
+
+    def mapLazy(newPos: Position, f: Lazy => Lazy): Arr = new LazyArr(newPos, value.map(x => f(() => x)))
+
+    def mapLazyWithIndex(newPos: Position, f: (Lazy, Int) => Lazy): Arr = {
+      var i = 0
+      val a = new Array[Lazy](value.length)
+      while(i < a.length) {
+        val boundI = i
+        val x = value(i)
+        a(i) = f(() => x, boundI)
+        i += 1
+      }
+      new LazyArr(newPos, a)
+    }
+
+    def iterator: Iterator[Val] = value.iterator
+    def foreach[U](f: Val => U) = {
+      var i = 0
+      while(i < value.length) {
+        f(value(i))
+        i += 1
+      }
+    }
+    def forall(f: Val => Boolean): Boolean = {
+      var i = 0
+      while(i < value.length) {
+        if(!f(value(i))) return false
         i += 1
       }
       true
@@ -241,9 +327,9 @@ object Val{
         val rr = r.asInstanceOf[Val.Num].value
         Val.Num(pos, ll + rr)
       } else if(l.isInstanceOf[Val.Arr] && r.isInstanceOf[Val.Arr]) {
-        val ll = l.asInstanceOf[Val.Arr].asLazyArray
-        val rr = r.asInstanceOf[Val.Arr].asLazyArray
-        new Val.Arr(pos, ll ++ rr)
+        val ll = l.asInstanceOf[Val.Arr]
+        val rr = r.asInstanceOf[Val.Arr]
+        ll.concat(pos, rr)
       } else if(l.isInstanceOf[Val.Obj] && r.isInstanceOf[Val.Obj]) {
         val ll = l.asInstanceOf[Val.Obj]
         val rr = r.asInstanceOf[Val.Obj]
