@@ -15,7 +15,10 @@ import scala.reflect.ClassTag
   * except evaluation of object attributes and array contents are lazy, and
   * the tree can contain functions.
   */
-sealed abstract class Val {
+sealed abstract class Val extends Val.Lazy {
+  this.cached = this
+  def compute = this
+
   def pos: Position
   def prettyName: String
 
@@ -60,10 +63,10 @@ object Val{
       cached
     }
   }
-  final class Strict(v: Val) extends Lazy {
-    this.cached =v
-    def compute = v
-  }
+//  final class Strict(v: Val) extends Lazy {
+//    this.cached = v
+//    def compute = v
+//  }
 
   abstract class Literal extends Val with Expr
   abstract class Bool extends Literal {

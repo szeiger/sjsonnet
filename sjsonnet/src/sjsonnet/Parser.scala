@@ -136,17 +136,14 @@ class Parser(val currentFile: Path) {
     Pos ~~ expr ~
     (compSuffix | "," ~ (compSuffix | (expr.rep(0, sep = ",") ~ ",".?).map(Right(_)))).?
   ).map{
-    case (offset, first: Val, None) => new Val.Arr(offset, Array(new Val.Strict(first)))
+    case (offset, first: Val, None) => new Val.Arr(offset, Array(first))
     case (offset, first, None) => Expr.Arr(offset, Array(first))
     case (offset, first, Some(Left(comp))) => Expr.Comp(offset, first, comp._1, comp._2.toArray)
     case (offset, first: Val, Some(Right(rest))) if rest.forall(_.isInstanceOf[Val]) =>
       val a = new Array[Val.Lazy](rest.length + 1)
-      a(0) = new Val.Strict(first)
+      a(0) = first
       var i = 1
-      rest.foreach { v =>
-        a(i) = new Val.Strict(v.asInstanceOf[Val])
-        i += 1
-      }
+      rest.asInstanceOf[Seq[Val.Lazy]].copyToArray(a, 1)
       new Val.Arr(offset, a)
     case (offset, first, Some(Right(rest))) => Expr.Arr(offset, Array(first) ++ rest)
   }
