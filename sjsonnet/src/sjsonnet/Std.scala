@@ -181,12 +181,12 @@ object Std {
         val k = allKeys(i)
         val v = Val.Obj.Member(false, Visibility.Normal,
           (_, _, _, _) =>
-            func.apply2(new Val.Strict(Val.Str(pos, k)), () => obj.value(k, pos.noOffset)(ev), pos.noOffset)(ev)
+            func.apply2(new Val.Strict(Val.Str(pos, k)), () => obj.value(k, pos.noOffset, obj)(ev), pos.noOffset)(ev)
         )
         m.put(k, v)
         i += 1
       }
-      new Val.Obj(pos, m, false, null, null)
+      new Val.DynamicObj(pos, m, null, null)
     }
   }
 
@@ -465,8 +465,8 @@ object Std {
         case (l: Val.Obj, r: Val.Obj) =>
           val kvs = for {
             k <- (l.visibleKeyNames ++ r.visibleKeyNames).distinct
-            val lValue = Option(l.valueRaw(k, l, pos)(ev))
-            val rValue = Option(r.valueRaw(k, r, pos)(ev))
+            val lValue = Option(l.valueRaw(k, l, pos, null, null)(ev))
+            val rValue = Option(r.valueRaw(k, r, pos, null, null)(ev))
             if !rValue.exists(_.isInstanceOf[Val.Null])
           } yield (lValue, rValue) match{
             case (Some(lChild), None) => k -> createMember{lChild}
@@ -974,7 +974,7 @@ object Std {
             valueMap.foreach { case (k, v) =>
               m.put(k, Val.Obj.Member(false, Expr.Member.Visibility.Normal, (_, _, _, _) => recursiveTransform(v)))
             }
-            new Val.Obj(pos, m, false, null, null)
+            new Val.DynamicObj(pos, m, null, null)
         }
       }
       recursiveTransform(ujson.read(str))
@@ -991,7 +991,7 @@ object Std {
         case o: Val.Obj =>
           val bindings = for{
             k <- o.visibleKeyNames
-            v = rec(o.value(k, pos.fileScope.noOffsetPos)(ev))
+            v = rec(o.value(k, pos.fileScope.noOffsetPos, o)(ev))
             if filter(v)
           }yield (k, Val.Obj.Member(false, Visibility.Normal, (_, _, _, _) => v))
           Val.Obj.mk(pos, bindings: _*)
@@ -1196,7 +1196,7 @@ object Std {
   
   def getObjValuesFromKeys(pos: Position, ev: EvalScope, v1: Val.Obj, keys: Array[String]): Val.Arr = {
     new Val.Arr(pos, keys.map { k =>
-      (() => v1.value(k, pos.noOffset)(ev)): Val.Lazy
+      (() => v1.value(k, pos.noOffset, v1)(ev)): Val.Lazy
     })
   }
 }

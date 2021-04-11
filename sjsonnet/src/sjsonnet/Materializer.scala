@@ -47,7 +47,7 @@ object Materializer {
         val objVisitor = visitor.visitObject(keys.length , -1)
 
         for(k <- keys) {
-          val value = obj.value(k, evaluator.emptyMaterializeFileScopePos)
+          val value = obj.value(k, evaluator.emptyMaterializeFileScopePos, obj)
 
           storePos(
             value match{
@@ -94,7 +94,7 @@ object Materializer {
         )
         builder.put(x._1, v)
       }
-      new Val.Obj(pos, builder, false, null, null)
+      new Val.DynamicObj(pos, builder, null, null)
   }
 
   def toExpr(v: ujson.Value)(implicit ev: EvalScope): Expr = v match{

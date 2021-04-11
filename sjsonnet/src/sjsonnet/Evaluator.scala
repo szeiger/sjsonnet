@@ -243,7 +243,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[(Path, String), fastparse
       var s = scope.super0
       if(s == null) s = scope.self0
       if(s == null) Error.fail("Cannot use `super` outside an object", pos)
-      else s.value(key.value, pos)
+      else s.value(key.value, pos, s)
     } else (visitExpr(value), visitExpr(index)) match {
       case (v: Val.Arr, i: Val.Num) =>
         if (i.value > v.length) Error.fail(s"array bounds error: ${i.value} not within [0, ${v.length})", pos)
@@ -253,7 +253,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[(Path, String), fastparse
         catch Error.tryCatchWrap(pos)
       case (v: Val.Str, i: Val.Num) => Val.Str(pos, new String(Array(v.value(i.value.toInt))))
       case (v: Val.Obj, i: Val.Str) =>
-        val ref = v.value(i.value, pos)
+        val ref = v.value(i.value, pos, v)
         try ref
         catch Error.tryCatchWrap(pos)
       case (lhs, rhs) =>
@@ -266,7 +266,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[(Path, String), fastparse
       if(scope.super0 == null) Error.fail("Cannot use `super` outside an object", pos)
       else  scope.super0.value(name, pos, scope.self0)
     } else visitExpr(value) match {
-      case obj: Val.Obj => obj.value(name, pos)
+      case obj: Val.Obj => obj.value(name, pos, obj)
       case r => Error.fail(s"attempted to index a ${r.prettyName} with string ${name}", pos)
     }
   }
@@ -474,7 +474,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[(Path, String), fastparse
           builder.put(k, v)
         }
     }
-    new Val.Obj(objPos, builder, false, if(asserts != null) assertions else null, sup)
+    new Val.DynamicObj(objPos, builder, if(asserts != null) assertions else null, sup)
   }
 
   def visitObjComp(objPos: Position, preLocals: Array[Bind], key: Expr, value: Expr, postLocals: Array[Bind], first: ForSpec, rest: List[CompSpec], sup: Val.Obj)(implicit scope: ValScope): Val.Obj = {
@@ -511,7 +511,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[(Path, String), fastparse
           case Val.Null(_) => // do nothing
         }
       }
-      new Val.Obj(objPos, builder, false, null, sup)
+      new Val.DynamicObj(objPos, builder, null, sup)
     }
 
     newSelf
@@ -573,8 +573,8 @@ class Evaluator(parseCache: collection.mutable.HashMap[(Path, String), fastparse
         while(i < k1.length) {
           val k = k1(i)
           if(!o2.containsKey(k)) return false
-          val v1 = o1.value(k, emptyMaterializeFileScopePos)
-          val v2 = o2.value(k, emptyMaterializeFileScopePos)
+          val v1 = o1.value(k, emptyMaterializeFileScopePos, o1)
+          val v2 = o2.value(k, emptyMaterializeFileScopePos, o2)
           if(!equal(v1, v2)) return false
           i += 1
         }

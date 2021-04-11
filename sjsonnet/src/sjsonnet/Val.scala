@@ -137,93 +137,33 @@ object Val{
     def mk(pos: Position, members: (String, Obj.Member)*): Obj = {
       val m = new util.LinkedHashMap[String, Obj.Member]()
       for((k, v) <- members) m.put(k, v)
-      new Obj(pos, m, false, null, null)
+      new DynamicObj(pos, m, null, null)
     }
   }
 
-  final class Obj(val pos: Position,
-                  private[this] var value0: util.LinkedHashMap[String, Obj.Member],
-                  static: Boolean,
-                  triggerAsserts: Val.Obj => Unit,
-                  `super`: Obj,
-                  valueCache: mutable.HashMap[Any, Val] = mutable.HashMap.empty[Any, Val],
-                  private[this] var allKeys: util.LinkedHashMap[String, java.lang.Boolean] = null) extends Literal with Expr.ObjBody {
-
-    def getSuper = `super`
-
-    private[this] def getValue0: util.LinkedHashMap[String, Obj.Member] = {
-      if(value0 == null) {
-        value0 = new java.util.LinkedHashMap[String, Val.Obj.Member]
-        allKeys.forEach { (k, _) =>
-          val v = valueCache(k)
-          val m = Val.Obj.Member(false, Visibility.Normal, (self: Val.Obj, sup: Val.Obj, _, _) => v)
-          value0.put(k, m)
-        }
-      }
-      value0
-    }
-
-    @tailrec def triggerAllAsserts(obj: Val.Obj): Unit = {
-      if(triggerAsserts != null) triggerAsserts(obj)
-      if(`super` != null) `super`.triggerAllAsserts(obj)
-    }
-
-    def addSuper(pos: Position, lhs: Val.Obj): Val.Obj = {
-      `super` match{
-        case null => new Val.Obj(pos, getValue0, false, null, lhs)
-        case x => new Val.Obj(pos, getValue0, false, null, x.addSuper(pos, lhs))
-      }
-    }
-
+  abstract class Obj extends Literal with Expr.ObjBody {
     def prettyName = "object"
     override def asObj: Val.Obj = this
 
-    private def gatherKeys(mapping: util.LinkedHashMap[String, java.lang.Boolean]): Unit = {
-      if(`super` != null) `super`.gatherKeys(mapping)
-      getValue0.forEach { (k, m) =>
-        val vis = m.visibility
-        if(!mapping.containsKey(k)) mapping.put(k, vis == Visibility.Hidden)
-        else if(vis == Visibility.Hidden) mapping.put(k, true)
-        else if(vis == Visibility.Unhide) mapping.put(k, false)
-      }
-    }
+    def getSuper: Obj
 
-    private def getAllKeys = {
-      if(allKeys == null) {
-        allKeys = new util.LinkedHashMap[String, java.lang.Boolean]
-        gatherKeys(allKeys)
-      }
-      allKeys
-    }
+    def triggerAllAsserts(obj: Val.Obj): Unit
 
-    @inline def hasKeys = !getAllKeys.isEmpty
+    def addSuper(pos: Position, lhs: Val.Obj): Val.Obj
 
-    @inline def containsKey(k: String): Boolean = getAllKeys.containsKey(k)
+    def gatherKeys(mapping: util.LinkedHashMap[String, java.lang.Boolean]): Unit
 
-    @inline def containsVisibleKey(k: String): Boolean = getAllKeys.get(k) == java.lang.Boolean.FALSE
+    def hasKeys: Boolean
 
-    lazy val allKeyNames: Array[String] = getAllKeys.keySet().toArray(new Array[String](getAllKeys.size()))
+    def containsKey(k: String): Boolean
 
-    lazy val visibleKeyNames: Array[String] = if(static) allKeyNames else {
-      val buf = mutable.ArrayBuilder.make[String]
-      getAllKeys.forEach((k, b) => if(b == java.lang.Boolean.FALSE) buf += k)
-      buf.result()
-    }
+    def containsVisibleKey(k: String): Boolean
 
-    def value(k: String,
-              pos: Position,
-              self: Obj = this)
-             (implicit evaluator: EvalScope): Val = {
+    def allKeyNames: Array[String]
 
-      val cacheKey = if(self eq this) k else (k, self)
+    def visibleKeyNames: Array[String]
 
-      valueCache.getOrElse(cacheKey, {
-        valueRaw(k, self, pos, valueCache, cacheKey) match {
-          case null => Error.fail("Field does not exist: " + k, pos)
-          case x => x
-        }
-      })
-    }
+    def value(k: String, pos: Position, self: Obj)(implicit evaluator: EvalScope): Val
 
     private def renderString(v: Val)(implicit evaluator: EvalScope): String = {
       try evaluator.materialize(v).transform(new Renderer()).toString
@@ -255,11 +195,96 @@ object Val{
       } else throw new MatchError((l, r))
     }
 
+    def valueRaw(k: String, self: Obj, pos: Position, addTo: mutable.HashMap[Any, Val], addKey: Any)
+                (implicit evaluator: EvalScope): Val
+  }
+
+  class DynamicObj(val pos: Position,
+                  private[this] var value0: util.LinkedHashMap[String, Obj.Member],
+                  triggerAsserts: Val.Obj => Unit,
+                  `super`: Obj) extends Obj {
+
+    private[this] var valueCache: mutable.HashMap[Any, Val] = mutable.HashMap.empty[Any, Val]
+    private[this] var allKeys: util.LinkedHashMap[String, java.lang.Boolean] = null
+
+    def getSuper = `super`
+
+    private[this] def getValue0: util.LinkedHashMap[String, Obj.Member] = {
+      if(value0 == null) {
+        value0 = new java.util.LinkedHashMap[String, Val.Obj.Member]
+        allKeys.forEach { (k, _) =>
+          val v = valueCache(k)
+          val m = Val.Obj.Member(false, Visibility.Normal, (self: Val.Obj, sup: Val.Obj, _, _) => v)
+          value0.put(k, m)
+        }
+      }
+      value0
+    }
+
+    def triggerAllAsserts(obj: Val.Obj): Unit = {
+      if(triggerAsserts != null) triggerAsserts(obj)
+      if(`super` != null) `super`.triggerAllAsserts(obj)
+    }
+
+    def addSuper(pos: Position, lhs: Val.Obj): Val.Obj = {
+      `super` match{
+        case null => new DynamicObj(pos, getValue0, null, lhs)
+        case x => new DynamicObj(pos, getValue0, null, x.addSuper(pos, lhs))
+      }
+    }
+
+    def gatherKeys(mapping: util.LinkedHashMap[String, java.lang.Boolean]): Unit = {
+      if(`super` != null) `super`.gatherKeys(mapping)
+      getValue0.forEach { (k, m) =>
+        val vis = m.visibility
+        if(!mapping.containsKey(k)) mapping.put(k, vis == Visibility.Hidden)
+        else if(vis == Visibility.Hidden) mapping.put(k, true)
+        else if(vis == Visibility.Unhide) mapping.put(k, false)
+      }
+    }
+
+    private def getAllKeys = {
+      if(allKeys == null) {
+        allKeys = new util.LinkedHashMap[String, java.lang.Boolean]
+        gatherKeys(allKeys)
+      }
+      allKeys
+    }
+
+    @inline def hasKeys = !getAllKeys.isEmpty
+
+    @inline def containsKey(k: String): Boolean = getAllKeys.containsKey(k)
+
+    @inline def containsVisibleKey(k: String): Boolean = getAllKeys.get(k) == java.lang.Boolean.FALSE
+
+    lazy val allKeyNames: Array[String] = getAllKeys.keySet().toArray(new Array[String](getAllKeys.size()))
+
+    lazy val visibleKeyNames: Array[String] = {
+      val buf = mutable.ArrayBuilder.make[String]
+      getAllKeys.forEach((k, b) => if(b == java.lang.Boolean.FALSE) buf += k)
+      buf.result()
+    }
+
+    def value(k: String,
+              pos: Position,
+              self: Obj)
+             (implicit evaluator: EvalScope): Val = {
+
+      val cacheKey = if(self eq this) k else (k, self)
+
+      valueCache.getOrElse(cacheKey, {
+        valueRaw(k, self, pos, valueCache, cacheKey) match {
+          case null => Error.fail("Field does not exist: " + k, pos)
+          case x => x
+        }
+      })
+    }
+
     def valueRaw(k: String,
                  self: Obj,
                  pos: Position,
-                 addTo: mutable.HashMap[Any, Val] = null,
-                 addKey: Any = null)
+                 addTo: mutable.HashMap[Any, Val],
+                 addKey: Any)
                 (implicit evaluator: EvalScope): Val = {
       val s = this.`super`
       getValue0.get(k) match{
@@ -279,6 +304,56 @@ object Val{
     }
   }
 
+  class StaticObj(val pos: Position,
+                  valueCache: mutable.HashMap[Any, Val] = mutable.HashMap.empty[Any, Val],
+                  allKeys: util.LinkedHashMap[String, java.lang.Boolean]) extends Obj {
+
+    def getSuper = null
+
+    private[this] var value0: util.LinkedHashMap[String, Obj.Member] = null
+    private[this] def getValue0: util.LinkedHashMap[String, Obj.Member] = {
+      if(value0 == null) {
+        value0 = new java.util.LinkedHashMap[String, Val.Obj.Member]
+        allKeys.forEach { (k, _) =>
+          val v = valueCache(k)
+          val m = Val.Obj.Member(false, Visibility.Normal, (_, _, _, _) => v)
+          value0.put(k, m)
+        }
+      }
+      value0
+    }
+
+    def triggerAllAsserts(obj: Val.Obj): Unit = ()
+
+    def addSuper(pos: Position, lhs: Val.Obj): Val.Obj = new DynamicObj(pos, getValue0, null, lhs)
+
+    def gatherKeys(mapping: util.LinkedHashMap[String, java.lang.Boolean]): Unit =
+      mapping.putAll(allKeys)
+
+    @inline def hasKeys = !allKeys.isEmpty
+
+    @inline def containsKey(k: String): Boolean = allKeys.containsKey(k)
+
+    @inline def containsVisibleKey(k: String): Boolean = allKeys.get(k) == java.lang.Boolean.FALSE
+
+    lazy val allKeyNames: Array[String] = allKeys.keySet().toArray(new Array[String](allKeys.size()))
+
+    def visibleKeyNames = allKeyNames
+
+    def value(k: String, pos: Position, self: Obj)(implicit evaluator: EvalScope): Val =
+      valueCache.getOrElse(k, null) match {
+        case null => Error.fail("Field does not exist: " + k, pos)
+        case x => x
+      }
+
+    def valueRaw(k: String, self: Obj, pos: Position, addTo: mutable.HashMap[Any, Val], addKey: Any)
+                 (implicit evaluator: EvalScope): Val = {
+      val v = valueCache.getOrElse(k, null)
+      if(addTo != null && v != null) addTo(addKey) = v
+      v
+    }
+  }
+
   def staticObject(pos: Position, fields: Array[Expr.Member.Field]): Obj = {
     val cache = mutable.HashMap.empty[Any, Val]
     val allKeys = new util.LinkedHashMap[String, java.lang.Boolean]
@@ -287,7 +362,7 @@ object Val{
         cache.put(k, rhs)
         allKeys.put(k, false)
     }
-    new Val.Obj(pos, null, true, null, null, cache, allKeys)
+    new StaticObj(pos, cache, allKeys)
   }
 
   abstract class Func(val pos: Position,
