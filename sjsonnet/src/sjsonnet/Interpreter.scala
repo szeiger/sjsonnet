@@ -38,7 +38,11 @@ class Interpreter(parseCache: collection.mutable.HashMap[(Path, String), fastpar
     for{
       v <- evaluate(txt, path)
       r <- materialize(v, visitor)
-    } yield r
+    } yield {
+      println("---- expr counts:")
+      evaluator.counts.toSeq.sortBy(- _._2).foreach(println)
+      r
+    }
   }
 
   def evaluate[T](txt: String, path: Path): Either[String, Val] = {
@@ -79,7 +83,9 @@ class Interpreter(parseCache: collection.mutable.HashMap[(Path, String), fastpar
           }
         case x => x
       }
-    } yield res
+    } yield {
+      res
+    }
   }
 
   def materialize[T](res: Val, visitor: upickle.core.Visitor[T, T]): Either[String, T] = {

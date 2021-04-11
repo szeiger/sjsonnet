@@ -30,16 +30,26 @@ class Evaluator(parseCache: collection.mutable.HashMap[(Path, String), fastparse
   val cachedImports = collection.mutable.HashMap.empty[Path, Val]
   val cachedImportedStrings = collection.mutable.HashMap.empty[Path, String]
 
+  val counts = new mutable.HashMap[String, Int]()
+  def count(n: String): Unit = {
+    val i = counts.getOrElse(n, 0)
+    counts.put(n, i+1)
+  }
+
   def visitExpr(expr: Expr)
                (implicit scope: ValScope): Val = try {
     expr match {
-      case lit: Val.Literal => lit
+      case lit: Val.Literal =>
+        count("lit")
+        lit
       case Self(pos) =>
+        count("self")
         val self = scope.self0
         if(self == null) Error.fail("Cannot use `self` outside an object", pos)
         self
 
       case BinaryOp(pos, lhs, Expr.BinaryOp.`in`, Super(_)) =>
+        count("in")
         if(scope.super0 == null) Val.False(pos)
         else {
           val key = visitExpr(lhs).cast[Val.Str]
@@ -47,6 +57,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[(Path, String), fastparse
         }
 
       case BinaryOp(pos, lhs, Expr.BinaryOp.`&&`, rhs) =>
+        count("&&")
         visitExpr(lhs) match {
           case Val.True(_) =>
             visitExpr(rhs) match{
@@ -60,6 +71,7 @@ class Evaluator(parseCache: collection.mutable.HashMap[(Path, String), fastparse
         }
 
       case BinaryOp(pos, lhs, Expr.BinaryOp.`||`, rhs) =>
+        count("||")
         visitExpr(lhs) match {
           case Val.True(_) => Val.True(pos)
           case Val.False(_) =>
@@ -72,24 +84,39 @@ class Evaluator(parseCache: collection.mutable.HashMap[(Path, String), fastparse
             Error.fail(s"binary operator || does not operate on ${unknown.prettyName}s.", pos)
         }
 
-      case BinaryOp(pos, lhs, op, rhs) => visitBinaryOp(pos, lhs, op, rhs)
+      case BinaryOp(pos, lhs, op, rhs) =>
+        count("binop")
+        visitBinaryOp(pos, lhs, op, rhs)
 
       case $(pos) =>
+        count("$")
         val dollar = scope.dollar0
         if(dollar == null) Error.fail("Cannot use `$` outside an object", pos)
         dollar
-      case Id(pos, value) => visitId(pos, value)
+      case Id(pos, value) =>
+        count("id")
+        visitId(pos, value)
 
-      case Arr(pos, value) => new Val.Arr(pos, value.map(v => (() => visitExpr(v)): Val.Lazy))
-      case ObjBody.MemberList(pos, binds, fields, asserts) => visitMemberList(pos, pos, binds, fields, asserts, null)
-      case ObjBody.ObjComp(pos, preLocals, key, value, postLocals, first, rest) => visitObjComp(pos, preLocals, key, value, postLocals, first, rest, null)
+      case Arr(pos, value) =>
+        count("arr")
+        new Val.Arr(pos, value.map(v => (() => visitExpr(v)): Val.Lazy))
+      case ObjBody.MemberList(pos, binds, fields, asserts) =>
+        count("member")
+        visitMemberList(pos, pos, binds, fields, asserts, null)
+      case ObjBody.ObjComp(pos, preLocals, key, value, postLocals, first, rest) =>
+        count("objcomp")
+        visitObjComp(pos, preLocals, key, value, postLocals, first, rest, null)
 
-      case UnaryOp(pos, op, value) => visitUnaryOp(pos, op, value)
+      case UnaryOp(pos, op, value) =>
+        count("unaryop")
+        visitUnaryOp(pos, op, value)
 
       case AssertExpr(pos, Member.AssertStmt(value, msg), returned) =>
+        count("assert")
         visitAssert(pos, value, msg, returned)
 
       case LocalExpr(pos, bindings, returned) =>
+        count("local")
         val s =
           if(bindings == null) scope else {
             lazy val newScope: ValScope = {
@@ -100,21 +127,41 @@ class Evaluator(parseCache: collection.mutable.HashMap[(Path, String), fastparse
           }
         visitExpr(returned)(s)
 
-      case Import(pos, value) => visitImport(pos, value)
-      case ImportStr(pos, value) => visitImportStr(pos, value)
-      case Expr.Error(pos, value) => visitError(pos, value)
-      case Apply(pos, value, argNames, argExprs) => visitApply(pos, value, argNames, argExprs)
+      case Import(pos, value) =>
+        count("import")
+        visitImport(pos, value)
+      case ImportStr(pos, value) =>
+        count("importstr")
+        visitImportStr(pos, value)
+      case Expr.Error(pos, value) =>
+        count("error")
+        visitError(pos, value)
+      case Apply(pos, value, argNames, argExprs) =>
+        count("apply")
+        visitApply(pos, value, argNames, argExprs)
 
-      case Select(pos, value, name) => visitSelect(pos, value, name)
+      case Select(pos, value, name) =>
+        count("select")
+        visitSelect(pos, value, name)
 
-      case Lookup(pos, value, index) => visitLookup(pos, value, index)
+      case Lookup(pos, value, index) =>
+        count("lookup")
+        visitLookup(pos, value, index)
 
-      case Slice(pos, value, start, end, stride) => visitSlice(pos, value, start, end, stride)
-      case Function(pos, params, body) => visitMethod(body, params, pos)
-      case IfElse(pos, cond, then0, else0) => visitIfElse(pos, cond, then0, else0)
+      case Slice(pos, value, start, end, stride) =>
+        count("slice")
+        visitSlice(pos, value, start, end, stride)
+      case Function(pos, params, body) =>
+        count("function")
+        visitMethod(body, params, pos)
+      case IfElse(pos, cond, then0, else0) =>
+        count("ifelse")
+        visitIfElse(pos, cond, then0, else0)
       case Comp(pos, value, first, rest) =>
+        count("comp")
         new Val.Arr(pos, visitComp(first :: rest.toList, Array(scope)).map(s => (() => visitExpr(value)(s)): Val.Lazy))
       case ObjExtend(superPos, value, ext) => {
+        count("objextend")
         if(strict && isObjLiteral(value))
           Error.fail("Adjacent object literals not allowed in strict mode - Use '+' to concatenate objects", superPos)
         val original = visitExpr(value).cast[Val.Obj]
