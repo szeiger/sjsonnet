@@ -573,6 +573,12 @@ object Val{
         evalRhs(argVals(0).force, argVals(1).force, argVals(2).force, ev, outerPos)
       else super.apply(argNames, argVals, outerPos)
   }
+
+  /** Dummy value for "super" so we can evaluate the RHS in "x in super" eagerly */
+  object Super extends Val {
+    def pos = null
+    def prettyName = "super"
+  }
 }
 
 /**

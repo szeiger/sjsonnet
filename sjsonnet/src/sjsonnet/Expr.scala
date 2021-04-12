@@ -95,6 +95,7 @@ object Expr{
     final val OP_& = 14
     final val OP_^ = 15
     final val OP_| = 16
+    final val LAZY_OP_START = 17
     final val OP_&& = 17
     final val OP_|| = 18
     private val names = Map(OP_* -> "*", OP_/ -> "/", OP_% -> "%", OP_+ -> "+", OP_- -> "-", OP_<< -> "<<",

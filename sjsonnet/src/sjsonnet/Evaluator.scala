@@ -43,40 +43,9 @@ class Evaluator(parseCache: collection.mutable.HashMap[(Path, String), fastparse
 
       case UnaryOp(pos, op, value) => visitUnaryOp(pos, op, value)
 
-      case BinaryOp(pos, lhs, Expr.BinaryOp.OP_in, Super(_)) =>
-        if(scope.super0 == null) Val.False(pos)
-        else {
-          val key = visitExpr(lhs).cast[Val.Str]
-          Val.bool(pos, scope.super0.containsKey(key.value))
-        }
-
-      case BinaryOp(pos, lhs, Expr.BinaryOp.OP_&&, rhs) =>
-        visitExpr(lhs) match {
-          case Val.True(_) =>
-            visitExpr(rhs) match{
-              case b: Val.Bool => b
-              case unknown =>
-                Error.fail(s"binary operator && does not operate on ${unknown.prettyName}s.", pos)
-            }
-          case Val.False(_) => Val.False(pos)
-          case unknown =>
-            Error.fail(s"binary operator && does not operate on ${unknown.prettyName}s.", pos)
-        }
-
-      case BinaryOp(pos, lhs, Expr.BinaryOp.OP_||, rhs) =>
-        visitExpr(lhs) match {
-          case Val.True(_) => Val.True(pos)
-          case Val.False(_) =>
-            visitExpr(rhs) match{
-              case b: Val.Bool => b
-              case unknown =>
-                Error.fail(s"binary operator || does not operate on ${unknown.prettyName}s.", pos)
-            }
-          case unknown =>
-            Error.fail(s"binary operator || does not operate on ${unknown.prettyName}s.", pos)
-        }
-
-      case BinaryOp(pos, lhs, op, rhs) => visitBinaryOp(pos, lhs, op, rhs)
+      case BinaryOp(pos, lhs, op, rhs) =>
+        if(op >= Expr.BinaryOp.LAZY_OP_START) visitLazyBinaryOp(pos, lhs, op, rhs)
+        else visitBinaryOp(pos, lhs, op, rhs)
 
       case Lookup(pos, value, index) => visitLookup(pos, value, index)
 
@@ -133,6 +102,8 @@ class Evaluator(parseCache: collection.mutable.HashMap[(Path, String), fastparse
         dollar
 
       case ImportStr(pos, value) => visitImportStr(pos, value)
+
+      case Super(_) => Val.Super
 
       case Expr.Error(pos, value) => visitError(pos, value)
     }
@@ -431,6 +402,12 @@ class Evaluator(parseCache: collection.mutable.HashMap[(Path, String), fastparse
       }
 
       case Expr.BinaryOp.OP_in => (l, r) match {
+        case (l, Val.Super) =>
+          if(scope.super0 == null) Val.False(pos)
+          else {
+            val key = l.cast[Val.Str]
+            Val.bool(pos, scope.super0.containsKey(key.value))
+          }
         case (Val.Str(_, l), o: Val.Obj) => Val.bool(pos, o.containsKey(l))
         case _ => fail()
       }
@@ -451,6 +428,36 @@ class Evaluator(parseCache: collection.mutable.HashMap[(Path, String), fastparse
       }
 
       case _ => fail()
+    }
+  }
+
+  def visitLazyBinaryOp(pos: Position, lhs: Expr, op: Int, rhs: Expr)(implicit scope: ValScope) = {
+    op match {
+      case Expr.BinaryOp.OP_&& =>
+        visitExpr(lhs) match {
+          case Val.True(_) =>
+            visitExpr(rhs) match{
+              case b: Val.Bool => b
+              case unknown =>
+                Error.fail(s"binary operator && does not operate on ${unknown.prettyName}s.", pos)
+            }
+          case Val.False(_) => Val.False(pos)
+          case unknown =>
+            Error.fail(s"binary operator && does not operate on ${unknown.prettyName}s.", pos)
+        }
+
+      case Expr.BinaryOp.OP_|| =>
+        visitExpr(lhs) match {
+          case Val.True(_) => Val.True(pos)
+          case Val.False(_) =>
+            visitExpr(rhs) match{
+              case b: Val.Bool => b
+              case unknown =>
+                Error.fail(s"binary operator || does not operate on ${unknown.prettyName}s.", pos)
+            }
+          case unknown =>
+            Error.fail(s"binary operator || does not operate on ${unknown.prettyName}s.", pos)
+        }
     }
   }
 
