@@ -13,9 +13,26 @@ class StaticOptimizer(implicit eval: EvalErrorScope) extends ExprTransform {
         case f: Val.Builtin =>
           val rargs = transformArr(args)
           val alen = rargs.length
+//          val statics = rargs.count(_.isInstanceOf[Val])
+//          println(s"---- statics: $statics out of ${rargs.length}")
           f match {
             case f: Val.Builtin1 if alen == 1 => Expr.ApplyBuiltin1(pos, f, rargs(0))
-            case f: Val.Builtin2 if alen == 2 => Expr.ApplyBuiltin2(pos, f, rargs(0), rargs(1))
+            case f: Val.Builtin2 if alen == 2 =>
+              (rargs(0), rargs(1)) match {
+                case (v0: Val, e1) => Expr.ApplyBuiltin1(pos, f.partialApply1(v0), e1)
+                case (e0, v1: Val) => Expr.ApplyBuiltin1(pos, f.partialApply2(v1), e0)
+                case (e0, e1) => Expr.ApplyBuiltin2(pos, f, e0, e1)
+              }
+            case f: Val.Builtin3 if alen == 3 =>
+              (rargs(0), rargs(1), rargs(2)) match {
+                case (v0: Val, v1: Val, e2) => Expr.ApplyBuiltin1(pos, f.partialApply12(v0, v1), e2)
+                case (v0: Val, e1, v2: Val) => Expr.ApplyBuiltin1(pos, f.partialApply13(v0, v2), e1)
+                case (e0, v1: Val, v2: Val) => Expr.ApplyBuiltin1(pos, f.partialApply23(v1, v2), e0)
+                case (v0: Val, e1, e2) => Expr.ApplyBuiltin2(pos, f.partialApply1(v0), e1, e2)
+                case (e0, v1: Val, e2) => Expr.ApplyBuiltin2(pos, f.partialApply2(v1), e0, e2)
+                case (e0, e1, v2: Val) => Expr.ApplyBuiltin2(pos, f.partialApply3(v2), e0, e1)
+                case (e0, e1, e2) => Expr.ApplyBuiltin(pos, f, rargs)
+              }
             case _ => Expr.ApplyBuiltin(pos, f, rargs)
           }
         case _ => rec(e)

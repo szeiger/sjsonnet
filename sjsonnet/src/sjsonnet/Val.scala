@@ -542,7 +542,7 @@ object Val{
       else super.apply(null, Array(argVal), outerPos)
   }
 
-  abstract class Builtin2(pn1: String, pn2: String) extends Builtin(pn1, pn2) {
+  abstract class Builtin2(pn1: String, pn2: String) extends Builtin(pn1, pn2) { self =>
     final def evalRhs(args: Array[Val], ev: EvalScope, pos: Position): Val =
       evalRhs(args(0), args(1), ev, pos)
 
@@ -560,9 +560,17 @@ object Val{
     override def apply2(argVal1: Lazy, argVal2: Lazy, outerPos: Position)(implicit ev: EvalScope): Val =
       if(params.indices.length == 2) evalRhs(argVal1.force, argVal2.force, ev, outerPos)
       else super.apply(null, Array(argVal1, argVal2), outerPos)
+
+    def partialApply1(v1: Val): Builtin1 = new Builtin1(pn2) {
+      def evalRhs(arg1: Val, ev: EvalScope, pos: Position): Val = self.evalRhs(v1, arg1, ev, pos)
+    }
+
+    def partialApply2(v2: Val): Builtin1 = new Builtin1(pn1) {
+      def evalRhs(arg1: Val, ev: EvalScope, pos: Position): Val = self.evalRhs(arg1, v2, ev, pos)
+    }
   }
 
-  abstract class Builtin3(pn1: String, pn2: String, pn3: String) extends Builtin(pn1, pn2, pn3) {
+  abstract class Builtin3(pn1: String, pn2: String, pn3: String) extends Builtin(pn1, pn2, pn3) { self =>
     final def evalRhs(args: Array[Val], ev: EvalScope, pos: Position): Val =
       evalRhs(args(0), args(1), args(2), ev, pos)
 
@@ -572,6 +580,30 @@ object Val{
       if(argNames == null && argVals.length == 3)
         evalRhs(argVals(0).force, argVals(1).force, argVals(2).force, ev, outerPos)
       else super.apply(argNames, argVals, outerPos)
+
+    def partialApply1(v1: Val): Builtin2 = new Builtin2(pn2, pn3) {
+      def evalRhs(arg1: Val, arg2: Val, ev: EvalScope, pos: Position): Val = self.evalRhs(v1, arg1, arg2, ev, pos)
+    }
+
+    def partialApply2(v2: Val): Builtin2 = new Builtin2(pn1, pn3) {
+      def evalRhs(arg1: Val, arg2: Val, ev: EvalScope, pos: Position): Val = self.evalRhs(arg1, v2, arg2, ev, pos)
+    }
+
+    def partialApply3(v3: Val): Builtin2 = new Builtin2(pn1, pn2) {
+      def evalRhs(arg1: Val, arg2: Val, ev: EvalScope, pos: Position): Val = self.evalRhs(arg1, arg2, v3, ev, pos)
+    }
+
+    def partialApply12(v1: Val, v2: Val): Builtin1 = new Builtin1(pn3) {
+      def evalRhs(arg1: Val, ev: EvalScope, pos: Position): Val = self.evalRhs(v1, v2, arg1, ev, pos)
+    }
+
+    def partialApply23(v2: Val, v3: Val): Builtin1 = new Builtin1(pn1) {
+      def evalRhs(arg1: Val, ev: EvalScope, pos: Position): Val = self.evalRhs(arg1, v2, v3, ev, pos)
+    }
+
+    def partialApply13(v1: Val, v3: Val): Builtin1 = new Builtin1(pn2) {
+      def evalRhs(arg1: Val, ev: EvalScope, pos: Position): Val = self.evalRhs(v1, arg1, v3, ev, pos)
+    }
   }
 }
 
