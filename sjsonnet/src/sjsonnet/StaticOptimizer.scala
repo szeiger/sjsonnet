@@ -41,6 +41,10 @@ class StaticOptimizer(scopeSize: Int)(implicit eval: EvalErrorScope) extends Sco
       super.transform(m) match {
         case m @ ObjBody.MemberList(pos, binds, fields, asserts) =>
           if(binds == null && asserts == null && fields.forall(_.isStatic)) Val.staticObject(pos, fields)
+          else if(binds == null && asserts == null && fields.forall(_.isSimple)) {
+            new Expr.ObjBody.SimpleMemberList(pos,
+              fields.map(_.fieldName.asInstanceOf[FieldName.Fixed].value), fields.map(_.rhs))
+          }
           else m
         case other => other
       }

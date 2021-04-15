@@ -103,6 +103,7 @@ class Evaluator(resolver: Resolver,
 
       case IfElse(pos, cond, then0, else0) => visitIfElse(pos, cond, then0, else0)
 
+      case ObjBody.SimpleMemberList(pos, names, exprs) => visitSimpleMemberList(pos, pos, names, exprs, null)
       case ObjBody.MemberList(pos, binds, fields, asserts) => visitMemberList(pos, pos, binds, fields, asserts, null)
 
       case AssertExpr(pos, Member.AssertStmt(value, msg), returned) =>
@@ -118,6 +119,7 @@ class Evaluator(resolver: Resolver,
           Error.fail("Adjacent object literals not allowed in strict mode - Use '+' to concatenate objects", superPos)
         val original = visitExpr(value).cast[Val.Obj]
         ext match {
+          case ObjBody.SimpleMemberList(pos, names, exprs) => visitSimpleMemberList(pos, superPos, names, exprs, original)
           case ObjBody.MemberList(pos, binds, fields, asserts) => visitMemberList(pos, superPos, binds, fields, asserts, original)
           case ObjBody.ObjComp(pos, preLocals, key, value, postLocals, first, rest) => visitObjComp(superPos, preLocals, key, value, postLocals, first, rest, original)
           case o: Val.Obj => o.addSuper(superPos, original)
@@ -567,6 +569,31 @@ class Evaluator(resolver: Resolver,
         }
     }
     new Val.Obj(objPos, builder, false, if(asserts != null) assertions else null, sup)
+  }
+
+  def visitSimpleMemberList(pos: Position, objPos: Position, names: Array[String], exprs: Array[Expr], sup: Val.Obj)(implicit scope: ValScope): Val.Obj = {
+
+    def makeNewScope(self: Val.Obj, sup: Val.Obj): ValScope = {
+      scope.extendSimple(
+        newDollar = if(scope.dollar0 != null) scope.dollar0 else self,
+        newSelf = self,
+        newSuper = sup
+      )
+    }
+
+    val builder = new java.util.LinkedHashMap[String, Val.Obj.Member]
+    var i = 0
+    while(i < names.length) {
+      val rhs = exprs(i)
+      val v = new Val.Obj.Member(false, Visibility.Normal) {
+        def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: EvalScope): Val = {
+          visitExpr(rhs)(makeNewScope(self, sup))
+        }
+      }
+      builder.put(names(i), v)
+      i += 1
+    }
+    new Val.Obj(objPos, builder, false, null, sup)
   }
 
   def visitObjComp(objPos: Position, preLocals: Array[Bind], key: Expr, value: Expr, postLocals: Array[Bind], first: ForSpec, rest: List[CompSpec], sup: Val.Obj)(implicit scope: ValScope): Val.Obj = {

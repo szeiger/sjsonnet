@@ -657,6 +657,13 @@ class ValScope(val dollar0: Val.Obj,
 
   def bindings(k: Int): Val.Lazy = bindings0(k)
 
+  def extendSimple(newDollar: Val.Obj, newSelf: Val.Obj, newSuper: Val.Obj): ValScope = {
+    val dollar = if (newDollar != null) newDollar else dollar0
+    val self = if (newSelf != null) newSelf else self0
+    val sup = if (newSuper != null) newSuper else super0
+    new ValScope(dollar, self, sup, bindings0)
+  }
+
   def extend(newBindingsI: Array[Expr.Bind] = null,
              newBindingsF: Array[(Val.Obj, Val.Obj) => Val.Lazy] = null,
              newDollar: Val.Obj = null,

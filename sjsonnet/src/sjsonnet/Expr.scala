@@ -49,7 +49,8 @@ object Expr{
                      args: Params,
                      sep: Visibility,
                      rhs: Expr) extends Member {
-      def isStatic = fieldName.isInstanceOf[FieldName.Fixed] && !plus && args == null && sep == Visibility.Normal && rhs.isInstanceOf[Val.Literal]
+      def isStatic = isSimple && rhs.isInstanceOf[Val.Literal]
+      def isSimple = fieldName.isInstanceOf[FieldName.Fixed] && !plus && args == null && sep == Visibility.Normal
     }
     case class AssertStmt(value: Expr, msg: Expr) extends Member
   }
@@ -141,6 +142,7 @@ object Expr{
   trait ObjBody extends Expr
   object ObjBody{
     case class MemberList(pos: Position, binds: Array[Bind], fields: Array[Member.Field], asserts: Array[Member.AssertStmt]) extends ObjBody
+    case class SimpleMemberList(pos: Position, fieldNames: Array[String], fieldExprs: Array[Expr]) extends ObjBody
     case class ObjComp(pos: Position,
                        preLocals: Array[Bind],
                        key: Expr,
@@ -151,5 +153,4 @@ object Expr{
       override def toString = s"ObjComp($pos, ${arrStr(preLocals)}, $key, $value, ${arrStr(postLocals)}, $first, $rest)"
     }
   }
-
 }
