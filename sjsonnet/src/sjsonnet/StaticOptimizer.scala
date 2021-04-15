@@ -2,7 +2,9 @@ package sjsonnet
 
 import Expr._
 
-class StaticOptimizer(scopeSize: Int)(implicit eval: EvalErrorScope) extends ScopedExprTransform(scopeSize) {
+/** Perform static optimization. If `resolver` is non-null, it is used to resolve imports.
+  * Otherwise only local optimizations are performed and the result is safe to cache. */
+class StaticOptimizer(scopeSize: Int, resolver: CachedResolver = null)(implicit eval: EvalErrorScope) extends ScopedExprTransform(scopeSize) {
   //println(s"----- scopeSize: $scopeSize")
 
   override def transform(e: Expr): Expr = e match {
@@ -43,6 +45,17 @@ class StaticOptimizer(scopeSize: Int)(implicit eval: EvalErrorScope) extends Sco
           if(binds == null && asserts == null && fields.forall(_.isStatic)) Val.staticObject(pos, fields)
           else m
         case other => other
+      }
+
+    case Import(pos, value) if resolver != null =>
+      resolver.resolveAndRead(pos.fileScope.currentFile.parent(), value) match {
+        case Some((p, str)) =>
+          resolver.parse(p, str) match {
+            case Right((doc, newFileScope)) =>
+              ResolvedImport(pos, p, doc, newFileScope)
+            case Left(msg) => e
+          }
+        case None => e
       }
 
     case e => super.transform(e)

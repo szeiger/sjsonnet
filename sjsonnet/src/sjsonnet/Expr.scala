@@ -116,6 +116,7 @@ object Expr{
   case class Bind(pos: Position, name: Int, args: Params, rhs: Expr) extends Member
   case class Import(pos: Position, value: String) extends Expr
   case class ImportStr(pos: Position, value: String) extends Expr
+  case class ResolvedImport(pos: Position, path: Path, expr: Expr, fs: FileScope) extends Expr
   case class Error(pos: Position, value: Expr) extends Expr
   case class Apply(pos: Position, value: Expr, argNames: Array[String], argExprs: Array[Expr]) extends Expr
   case class ApplyBuiltin(pos: Position, func: Val.Builtin, argExprs: Array[Expr]) extends Expr
