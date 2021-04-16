@@ -25,32 +25,59 @@ class OptimizerBenchmark {
     val config = parser.constructEither(MainBenchmark.mainArgs, autoPrintHelpAndExit = None).getOrElse(???)
     val file = config.file
     val wd = os.pwd
-    val path = os.Path(file, wd)
-    var currentPos: Position = null
+    val path = OsPath(os.Path(file, wd))
     this.interp = new Interpreter(
       Map.empty[String, ujson.Value],
       Map.empty[String, ujson.Value],
       OsPath(wd),
       importer = SjsonnetMain.resolveImport(config.jpaths.map(os.Path(_, wd)).map(OsPath(_)), None),
       staticOpt = false,
+      globalOpt = false
     )
     val writer = new StringWriter
     val renderer = new Renderer(writer, indent = 3)
-    interp.interpret0(os.read(path), OsPath(path), renderer).getOrElse(???)
+    interp.interpret0(interp.resolver.read(path).get, path, renderer).getOrElse(???)
     inputs = interp.parseCache.values.map(_.getOrElse(???)).toIndexedSeq
-    val countBefore, countAfter = new Counter
-    inputs.foreach(t => countBefore.transform(t._1))
-    inputs.foreach { case (expr, fs) =>
-      countAfter.transform((new StaticOptimizer(fs.nameIndices.size)(interp.evaluator)).transform(expr))
+    val static = inputs.map {
+      case (expr, fs) => ((new StaticOptimizer(fs)(interp.evaluator)).transform(expr), fs)
     }
+    val main = interp.parseCache.find { case ((p, _), _) => p == path }.get._2.getOrElse(???)
+    val interpPaths = interp.parseCache.keySet.map(_._1)
+    val mainOpt = new GlobalOptimizer(interp.resolver)
+    mainOpt.optimize(main._1)
+    val countBefore, countStatic, countGlobal = new Counter
+    inputs.foreach(t => assert(countBefore.transform(t._1) eq t._1))
+    static.foreach(t => assert(countStatic.transform(t._1) eq t._1))
+    mainOpt.allDocs.values.foreach { d => countGlobal.transform(d.expr) }
+    System.err.println(s"Documents: total=${inputs.size}, globalOpt=${mainOpt.allDocs.size}")
+
+    //val diff = mainOpt.allDocs.keySet.diff(interpPaths)
+    //System.err.println("Diff: "+diff)
+
+    val strict = inputs.map { case (expr, fs) =>
+      val sa = new StrictnessAnalyzer(fs, expr eq main._1)
+      sa.transform(expr)
+      sa.strictImports.foreach { e =>
+        System.err.println(s"  strict import: $e")
+      }
+      sa.strict.size()
+    }
+
+    System.err.println(s"Strict Exprs: ${strict.sum}")
+
+    val sa = new StrictnessAnalyzer(main._2, true)
+    sa.transform(main._1)
+    System.err.println(s"")
+
     System.err.println(s"Before: $countBefore")
-    System.err.println(s" After: $countAfter")
+    System.err.println(s"Static: $countStatic")
+    System.err.println(s"Global: $countGlobal")
   }
 
   @Benchmark
   def main(bh: Blackhole): Unit = {
     bh.consume(inputs.foreach { case (expr, fs) =>
-      bh.consume((new StaticOptimizer(fs.nameIndices.size)(interp.evaluator)).transform(expr))
+      bh.consume((new StaticOptimizer(fs)(interp.evaluator)).transform(expr))
     })
   }
 

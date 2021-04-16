@@ -2,10 +2,10 @@ package sjsonnet
 
 import Expr._
 
-/** Perform static optimization. If `resolver` is non-null, it is used to resolve imports.
-  * Otherwise only local optimizations are performed and the result is safe to cache. */
-class StaticOptimizer(scopeSize: Int, resolver: CachedResolver = null)(implicit eval: EvalErrorScope) extends ScopedExprTransform(scopeSize) {
-  //println(s"----- scopeSize: $scopeSize")
+import scala.collection.mutable
+
+class StaticOptimizer(rootFileScope: FileScope)(implicit eval: EvalErrorScope)
+  extends ScopedExprTransform(rootFileScope) {
 
   override def transform(e: Expr): Expr = e match {
     case Apply(pos, Select(_, Id(_, 0), name), null, args) if(scope(0) == null) =>
@@ -26,7 +26,7 @@ class StaticOptimizer(scopeSize: Int, resolver: CachedResolver = null)(implicit 
     case Id(pos, name) =>
       val v = scope(name)
       v match {
-        case v: Val with Expr =>
+        case ScopedVal(v: Val with Expr, _) =>
           //println(s"----- Id($pos, $name) -> $v")
           v
         case _ => e
@@ -47,16 +47,17 @@ class StaticOptimizer(scopeSize: Int, resolver: CachedResolver = null)(implicit 
         case other => other
       }
 
-    case Import(pos, value) if resolver != null =>
-      resolver.resolveAndRead(pos.fileScope.currentFile.parent(), value) match {
-        case Some((p, str)) =>
-          resolver.parse(p, str) match {
-            case Right((doc, newFileScope)) =>
-              ResolvedImport(pos, p, doc, newFileScope)
-            case Left(msg) => e
-          }
-        case None => e
-      }
+//    case Import(pos, value) if resolver != null =>
+//      resolver.resolveAndRead(pos.fileScope.currentFile.parent(), value) match {
+//        case Some((p, str)) =>
+//          resolver.parse(p, str) match {
+//            case Right((doc, newFileScope)) =>
+//              println(s"Resolved $pos, $p")
+//              transform(ResolvedImport(pos, p, doc, newFileScope))
+//            case Left(msg) => e
+//          }
+//        case None => e
+//      }
 
     case e => super.transform(e)
   }
@@ -71,5 +72,51 @@ class StaticOptimizer(scopeSize: Int, resolver: CachedResolver = null)(implicit 
         case x2 => FieldName.Dyn(x2)
       }
     case _ => f
+  }
+}
+
+class GlobalOptimizer(resolver: CachedResolver) {
+  class Doc(val expr: Expr, val fs: FileScope) {
+    val references = new mutable.HashSet[Position]
+  }
+
+  var allDocs = new mutable.HashMap[Path, Doc]
+
+  def optimize(root: Expr): Expr = {
+    (new Analyzer).transform(root)
+    root
+  }
+
+  class Analyzer extends ExprTransform {
+    def transform(expr: Expr): Expr = expr match {
+      case e: LocalExpr => rec(e) // This is actually lazy but it's our best chance of finding imports
+      case e: Lookup => rec(e)
+      case e: Select => rec(e)
+      case Apply(pos, value, argNames, argExprs) =>
+        rec(value)
+        expr
+      case Import(pos, value) =>
+        resolver.resolveAndRead(pos.fileScope.currentFile.parent(), value) match {
+          case Some((p, str)) =>
+            allDocs.get(p) match {
+              case Some(d) =>
+                d.references.add(pos)
+              case None =>
+                resolver.parse(p, str) match {
+                  case Right((doc, newFileScope)) =>
+                    val d = new Doc(doc, newFileScope)
+                    //println(s"Importing: $p")
+                    d.references.add(pos)
+                    allDocs.put(p, d)
+                    transform(doc)
+                  case _ =>
+                }
+            }
+          case _ =>
+        }
+        expr
+
+      case e => e
+    }
   }
 }

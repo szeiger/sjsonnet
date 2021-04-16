@@ -135,6 +135,11 @@ abstract class ExprTransform {
         if(x2 eq x) expr
         else Error(pos, x2)
 
+      case ResolvedImport(pos, path, x, fs) =>
+        val x2 = transform(x)
+        if(x2 eq x) expr
+        else ResolvedImport(pos, path, x2, fs)
+
       case other => other
     }
   }

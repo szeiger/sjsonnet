@@ -21,12 +21,12 @@ class Interpreter(extVars: Map[String, ujson.Value],
                   storePos: Position => Unit = _ => (),
                   val parseCache: mutable.HashMap[(Path, String), Either[String, (Expr, FileScope)]] = new mutable.HashMap,
                   staticOpt: Boolean = true,
-                  globalOpt: Boolean = false) {
+                  globalOpt: Boolean = true) {
 
   val resolver = new CachedResolver(importer, parseCache) {
     override def process(expr: Expr, fs: FileScope): Either[String, (Expr, FileScope)] = {
       if(staticOpt)
-        Right(((new StaticOptimizer(fs.nameIndices.size)(evaluator)).transform(expr), fs))
+        Right(((new StaticOptimizer(fs)(evaluator)).transform(expr), fs))
       else Right((expr, fs))
     }
   }
@@ -60,8 +60,8 @@ class Interpreter(extVars: Map[String, ujson.Value],
       }
       (parsed, fs) = res
       optimized =
-        if(globalOpt) (new StaticOptimizer(fs.nameIndices.size, resolver)(evaluator)).transform(parsed)
-        else parsed
+        /*if(globalOpt) (new StaticOptimizer(fs, resolver)(evaluator)).transform(parsed)
+        else*/ parsed
       res0 <-
         try Right(
           evaluator.visitExpr(optimized)(
