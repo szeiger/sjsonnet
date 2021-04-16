@@ -45,15 +45,22 @@ class CachedResolver(
   parentImporter: Importer,
   val parseCache: mutable.HashMap[(Path, String), Either[String, (Expr, FileScope)]] = new mutable.HashMap
 ) extends CachedImporter(parentImporter) {
+  private val textCache = new mutable.HashMap[String, Either[String, (Expr, FileScope)]]
 
   def parse(path: Path, txt: String): Either[String, (Expr, FileScope)] = {
     parseCache.getOrElseUpdate((path, txt), {
-      val parsed = fastparse.parse(txt, new Parser(path).document(_)) match {
-        case f @ Parsed.Failure(l, i, e) => Left(f.trace().msg)
-        case Parsed.Success(r, index) => Right(r)
+      textCache.getOrElse(txt, null) match {
+        case null =>
+          val parsed = fastparse.parse(txt, new Parser(path).document(_)) match {
+            case f @ Parsed.Failure(l, i, e) => Left(f.trace().msg)
+            case Parsed.Success(r, index) => Right(r)
+          }
+          val r = parsed.flatMap { case (e, fs) => process(e, fs) }
+          textCache.put(txt, r)
+          r
+        case cached =>
+          cached.map { case (expr, fs) => reposition(expr, fs, path) }
       }
-      parsed.flatMap { case (e, fs) => process(e, fs) }
-
     })
   }
 
@@ -63,6 +70,16 @@ class CachedResolver(
       case Left(msg) =>
         Error.fail("Imported file " + pprint.Util.literalize(pathStr) + " had Parse error. " + msg, pos)
     }
+
+  private def reposition(expr: Expr, fs: FileScope, path: Path): (Expr, FileScope) = {
+    //println(s"reposition($expr, $fs, $path)")
+    val newFs = new FileScope(path, fs.nameIndices)
+    val newExpr = (new ExprTransform {
+      def transform(expr: Expr): Expr =
+        expr.withPos(new Position(newFs, expr.pos.offset))
+    }).transform(expr)
+    (newExpr, newFs)
+  }
 
   def process(expr: Expr, fs: FileScope): Either[String, (Expr, FileScope)] = Right((expr, fs))
 }

@@ -73,25 +73,35 @@ object Val{
   def bool(pos: Position, b: Boolean) = if (b) True(pos) else False(pos)
 
   case class True(pos: Position) extends Bool {
+    def withPos(p: Position) = copy(pos = p)
     def prettyName = "boolean"
   }
   case class False(pos: Position) extends Bool {
+    def withPos(p: Position) = copy(pos = p)
     def prettyName = "boolean"
   }
   case class Null(pos: Position) extends Literal {
+    def withPos(p: Position) = copy(pos = p)
     def prettyName = "null"
   }
   case class Str(pos: Position, value: String) extends Literal {
+    def withPos(p: Position) = copy(pos = p)
     def prettyName = "string"
     override def asString: String = value
   }
   case class Num(pos: Position, value: Double) extends Literal {
+    def withPos(p: Position) = copy(pos = p)
     def prettyName = "number"
     override def asInt: Int = value.toInt
     override def asDouble: Double = value
   }
 
   class Arr(val pos: Position, private val value: Array[Lazy]) extends Literal {
+    def withPos(p: Position) =
+      new Arr(pos, value.map { l =>
+        val e = l.asInstanceOf[Strict].force.asInstanceOf[Expr]
+        new Strict(e.withPos(new Position(p.fileScope, e.pos.offset)).asInstanceOf[Val])
+      })
     def prettyName = "array"
     override def asArr: Arr = this
     def length: Int = value.length
@@ -152,6 +162,12 @@ object Val{
                   `super`: Obj,
                   valueCache: mutable.HashMap[Any, Val] = mutable.HashMap.empty[Any, Val],
                   private[this] var allKeys: util.LinkedHashMap[String, java.lang.Boolean] = null) extends Literal with Expr.ObjBody {
+
+    def withPos(p: Position) =
+      new Obj(pos, value0, static, triggerAsserts, `super`, valueCache.map { case (k, e) =>
+        val v = e.asInstanceOf[Val.Literal]
+        (k, v.withPos(new Position(p.fileScope, v.pos.offset)).asInstanceOf[Val])
+      }, allKeys)
 
     def getSuper = `super`
 

@@ -3,9 +3,12 @@ package sjsonnet
 import java.io.StringWriter
 import java.util.concurrent.TimeUnit
 
+import fastparse.Parsed
 import fastparse.Parsed.Success
 import org.openjdk.jmh.annotations._
 import org.openjdk.jmh.infra._
+
+import scala.collection.mutable
 
 @BenchmarkMode(Array(Mode.AverageTime))
 @Fork(2)
@@ -40,7 +43,30 @@ class ParserBenchmark {
   }
 
   @Benchmark
-  def main(bh: Blackhole): Unit = {
+  def withRepositioning(bh: Blackhole): Unit = {
+    val cache = new mutable.HashMap[String, (Expr, FileScope)]
+    bh.consume(inputs.foreach { case (p, s) =>
+      cache.getOrElse(s, null) match {
+        case null =>
+          val parsed = fastparse.parse(s, new Parser(p).document(_)) match {
+            case Parsed.Success(r, _) => r
+          }
+          cache.put(s, parsed)
+          bh.consume(parsed)
+        case parsed =>
+          println(s"reposition($p)")
+          val newFs = new FileScope(p, parsed._2.nameIndices)
+          val newExpr = (new ExprTransform {
+            def transform(expr: Expr): Expr =
+              expr.withPos(new Position(newFs, expr.pos.offset))
+          }).transform(parsed._1)
+          bh.consume((newExpr, newFs))
+      }
+    })
+  }
+
+  @Benchmark
+  def withoutRepositioning(bh: Blackhole): Unit = {
     bh.consume(inputs.foreach { case (p, s) =>
       val res = fastparse.parse(s, new Parser(p).document(_))
       bh.consume(res.asInstanceOf[Success[_]])

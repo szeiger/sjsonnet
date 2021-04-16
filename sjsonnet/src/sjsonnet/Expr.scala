@@ -12,18 +12,20 @@ import java.util.BitSet
   */
 trait Expr{
   def pos: Position
+  def withPos(pos: Position): Expr
 }
 object Expr{
   private final def arrStr(a: Array[_]): String = {
     if(a == null) "null" else a.mkString("[", ", ", "]")
   }
 
-  case class Self(pos: Position) extends Expr
-  case class Super(pos: Position) extends Expr
-  case class $(pos: Position) extends Expr
+  case class Self(pos: Position) extends Expr { def withPos(p: Position) = new Self(p) }
+  case class Super(pos: Position) extends Expr { def withPos(p: Position) = new Super(p) }
+  case class $(pos: Position) extends Expr { def withPos(p: Position) = new $(p) }
 
-  case class Id(pos: Position, value: Int) extends Expr
+  case class Id(pos: Position, value: Int) extends Expr { def withPos(p: Position) = copy(p) }
   case class Arr(pos: Position, value: Array[Expr]) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
     override def toString = s"Arr($pos, ${arrStr(value)})"
   }
 
@@ -33,7 +35,9 @@ object Expr{
     case class Fixed(value: String) extends FieldName
     case class Dyn(expr: Expr) extends FieldName
   }
-  sealed trait Member
+  sealed trait Member {
+    def withPos(pos: Position): Member
+  }
 
   object Member{
     sealed trait Visibility
@@ -50,10 +54,12 @@ object Expr{
                      sep: Visibility,
                      rhs: Expr) extends Member {
       def isStatic = fieldName.isInstanceOf[FieldName.Fixed] && !plus && args == null && sep == Visibility.Normal && rhs.isInstanceOf[Val.Literal]
+      def withPos(p: Position) = copy(pos = p)
     }
-    case class AssertStmt(value: Expr, msg: Expr) extends Member
+    case class AssertStmt(value: Expr, msg: Expr) extends Member {
+      def withPos(p: Position) = this
+    }
   }
-
 
   case class Params(names: Array[String], defaultExprs: Array[Expr], indices: Array[Int]){
     val argIndices: Map[String, Int] = (names, indices).zipped.toMap
@@ -73,7 +79,9 @@ object Expr{
   }
   case class Args(names: Array[String], exprs: Array[Expr])
 
-  case class UnaryOp(pos: Position, op: Int, value: Expr) extends Expr
+  case class UnaryOp(pos: Position, op: Int, value: Expr) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
+  }
   object UnaryOp{
     final val OP_! = 0
     final val OP_- = 1
@@ -82,7 +90,9 @@ object Expr{
     private val names = Map(OP_! -> "!", OP_- -> "-", OP_~ -> "~", OP_+ -> "+")
     def name(op: Int): String = names.getOrElse(op, "<unknown>")
   }
-  case class BinaryOp(pos: Position, lhs: Expr, op: Int, rhs: Expr) extends Expr
+  case class BinaryOp(pos: Position, lhs: Expr, op: Int, rhs: Expr) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
+  }
   object BinaryOp{
     final val OP_* = 0
     final val OP_/ = 1
@@ -108,39 +118,75 @@ object Expr{
       OP_!= -> "!=", OP_& -> "&", OP_^ -> "^", OP_| -> "|", OP_&& -> "&&", OP_|| -> "||" )
     def name(op: Int): String = names.getOrElse(op, "<unknown>")
   }
-  case class AssertExpr(pos: Position, asserted: Member.AssertStmt, returned: Expr) extends Expr
+  case class AssertExpr(pos: Position, asserted: Member.AssertStmt, returned: Expr) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
+  }
   case class LocalExpr(pos: Position, bindings: Array[Bind], returned: Expr) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
     override def toString = s"LocalExpr($pos, ${arrStr(bindings)}, $returned)"
   }
 
-  case class Bind(pos: Position, name: Int, args: Params, rhs: Expr) extends Member
-  case class Import(pos: Position, value: String) extends Expr
-  case class ImportStr(pos: Position, value: String) extends Expr
-  case class Error(pos: Position, value: Expr) extends Expr
-  case class Apply(pos: Position, value: Expr, argNames: Array[String], argExprs: Array[Expr]) extends Expr
-  case class ApplyBuiltin(pos: Position, func: Val.Builtin, argExprs: Array[Expr]) extends Expr
-  case class ApplyBuiltin1(pos: Position, func: Val.Builtin1, a1: Expr) extends Expr
-  case class ApplyBuiltin2(pos: Position, func: Val.Builtin2, a1: Expr, a2: Expr) extends Expr
-  case class Select(pos: Position, value: Expr, name: String) extends Expr
-  case class Lookup(pos: Position, value: Expr, index: Expr) extends Expr
-  case class Slice(pos: Position,
-                   value: Expr,
-                   start: Option[Expr],
-                   end: Option[Expr],
-                   stride: Option[Expr]) extends Expr
-  case class Function(pos: Position, params: Params, body: Expr) extends Expr
-  case class IfElse(pos: Position, cond: Expr, then: Expr, `else`: Expr) extends Expr
+  case class Bind(pos: Position, name: Int, args: Params, rhs: Expr) extends Member {
+    def withPos(p: Position) = copy(pos = p)
+  }
+  case class Import(pos: Position, value: String) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
+  }
+  case class ImportStr(pos: Position, value: String) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
+  }
+  case class Error(pos: Position, value: Expr) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
+  }
+  case class Apply(pos: Position, value: Expr, argNames: Array[String], argExprs: Array[Expr]) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
+  }
+  case class ApplyBuiltin(pos: Position, func: Val.Builtin, argExprs: Array[Expr]) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
+  }
+  case class ApplyBuiltin1(pos: Position, func: Val.Builtin1, a1: Expr) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
+  }
+  case class ApplyBuiltin2(pos: Position, func: Val.Builtin2, a1: Expr, a2: Expr) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
+  }
+  case class Select(pos: Position, value: Expr, name: String) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
+  }
+  case class Lookup(pos: Position, value: Expr, index: Expr) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
+  }
+  case class Slice(pos: Position, value: Expr, start: Option[Expr],
+                   end: Option[Expr], stride: Option[Expr]) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
+  }
+  case class Function(pos: Position, params: Params, body: Expr) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
+  }
+  case class IfElse(pos: Position, cond: Expr, then: Expr, `else`: Expr) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
+  }
 
   sealed trait CompSpec extends Expr
-  case class IfSpec(pos: Position, cond: Expr) extends CompSpec
-  case class ForSpec(pos: Position, name: Int, cond: Expr) extends CompSpec
+  case class IfSpec(pos: Position, cond: Expr) extends CompSpec {
+    def withPos(p: Position) = copy(pos = p)
+  }
+  case class ForSpec(pos: Position, name: Int, cond: Expr) extends CompSpec {
+    def withPos(p: Position) = copy(pos = p)
+  }
 
-  case class Comp(pos: Position, value: Expr, first: ForSpec, rest: Array[CompSpec]) extends Expr
-  case class ObjExtend(pos: Position, base: Expr, ext: ObjBody) extends Expr
+  case class Comp(pos: Position, value: Expr, first: ForSpec, rest: Array[CompSpec]) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
+  }
+  case class ObjExtend(pos: Position, base: Expr, ext: ObjBody) extends Expr {
+    def withPos(p: Position) = copy(pos = p)
+  }
 
   trait ObjBody extends Expr
   object ObjBody{
-    case class MemberList(pos: Position, binds: Array[Bind], fields: Array[Member.Field], asserts: Array[Member.AssertStmt]) extends ObjBody
+    case class MemberList(pos: Position, binds: Array[Bind], fields: Array[Member.Field], asserts: Array[Member.AssertStmt]) extends ObjBody {
+      def withPos(p: Position) = copy(pos = p)
+    }
     case class ObjComp(pos: Position,
                        preLocals: Array[Bind],
                        key: Expr,
@@ -148,6 +194,7 @@ object Expr{
                        postLocals: Array[Bind],
                        first: ForSpec,
                        rest: List[CompSpec]) extends ObjBody {
+      def withPos(p: Position) = copy(pos = p)
       override def toString = s"ObjComp($pos, ${arrStr(preLocals)}, $key, $value, ${arrStr(postLocals)}, $first, $rest)"
     }
   }
