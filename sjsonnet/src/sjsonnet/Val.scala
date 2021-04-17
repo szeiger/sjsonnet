@@ -139,14 +139,14 @@ object Val{
     }
 
     def mk(pos: Position, members: (String, Obj.Member)*): Obj = {
-      val m = new java.util.LinkedHashMap[String,Val.Obj.Member](members.length*3/2)
+      val m = MemberMap(members.length)
       for((k, v) <- members) m.put(k, v)
       new Obj(pos, m, false, null, null)
     }
   }
 
   final class Obj(val pos: Position,
-                  private[this] var value0: java.util.LinkedHashMap[String,Val.Obj.Member],
+                  private[this] var value0: MemberMap,
                   static: Boolean,
                   triggerAsserts: Val.Obj => Unit,
                   `super`: Obj,
@@ -155,9 +155,9 @@ object Val{
 
     def getSuper = `super`
 
-    private[this] def getValue0: java.util.LinkedHashMap[String,Val.Obj.Member] = {
+    private[this] def getValue0: MemberMap = {
       if(value0 == null) {
-        value0 = new java.util.LinkedHashMap[String,Val.Obj.Member](allKeys.size()*3/2)
+        value0 = MemberMap(allKeys.size())
         allKeys.forEach { (k, _) =>
           value0.put(k, new Val.Obj.ConstMember(false, Visibility.Normal, valueCache(k)))
         }
@@ -295,7 +295,7 @@ object Val{
     }
   }
 
-  def staticObject(pos: Position, fields: Array[Expr.Member.Field], backdrop: java.util.LinkedHashMap[String,Val.Obj.Member] = null): Obj = {
+  def staticObject(pos: Position, fields: Array[Expr.Member.Field], backdrop: MemberMap = null): Obj = {
     val cache = mutable.HashMap.empty[Any, Val]
     val allKeys = new util.LinkedHashMap[String, java.lang.Boolean]
     if(backdrop != null) {

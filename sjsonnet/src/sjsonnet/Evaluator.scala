@@ -479,7 +479,7 @@ class Evaluator(resolver: CachedResolver,
     arrF
   }
 
-  def visitMemberList(pos: Position, objPos: Position, backdrop: java.util.LinkedHashMap[String,Val.Obj.Member], binds: Array[Bind], fields: Array[Expr.Member.Field], asserts: Array[Expr.Member.AssertStmt], sup: Val.Obj)(implicit scope: ValScope): Val.Obj = {
+  def visitMemberList(pos: Position, objPos: Position, backdrop: MemberMap, binds: Array[Bind], fields: Array[Expr.Member.Field], asserts: Array[Expr.Member.AssertStmt], sup: Val.Obj)(implicit scope: ValScope): Val.Obj = {
     var asserting: Boolean = false
     def assertions(self: Val.Obj): Unit = if (!asserting) {
       asserting = true
@@ -516,8 +516,7 @@ class Evaluator(resolver: CachedResolver,
       else visitBindings(binds, (self, sup) => makeNewScope(self, sup))
 
     val builder =
-      if(backdrop == null) new java.util.LinkedHashMap[String,Val.Obj.Member](fields.length*3/2)
-      else backdrop.clone().asInstanceOf[java.util.LinkedHashMap[String,Val.Obj.Member]]
+      if(backdrop == null) MemberMap(fields.length) else backdrop.copy()
     fields.foreach {
       case Member.Field(offset, fieldName, plus, null, sep, rhs) =>
         val k = visitFieldName(fieldName, offset)
@@ -552,7 +551,7 @@ class Evaluator(resolver: CachedResolver,
     )
 
     lazy val newSelf: Val.Obj = {
-      val builder = new java.util.LinkedHashMap[String,Val.Obj.Member]
+      val builder = MemberMap()
       for(s <- visitComp(first :: rest, Array(compScope))){
         lazy val newScope: ValScope = s.extend(
           binds,

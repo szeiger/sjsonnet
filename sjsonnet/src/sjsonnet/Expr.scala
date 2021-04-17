@@ -140,7 +140,7 @@ object Expr{
 
   trait ObjBody extends Expr
   object ObjBody{
-    case class MemberList(pos: Position, backdrop: java.util.LinkedHashMap[String,Val.Obj.Member], binds: Array[Bind], fields: Array[Member.Field], asserts: Array[Member.AssertStmt]) extends ObjBody
+    case class MemberList(pos: Position, backdrop: MemberMap, binds: Array[Bind], fields: Array[Member.Field], asserts: Array[Member.AssertStmt]) extends ObjBody
     case class ObjComp(pos: Position,
                        preLocals: Array[Bind],
                        key: Expr,

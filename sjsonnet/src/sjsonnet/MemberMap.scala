@@ -4,16 +4,16 @@ import java.util
 
 import scala.jdk.CollectionConverters._
 
-/*
+
 class MemberMap private (
   //private var keys: Array[String],
-  private val map: java.util.LinkedHashMap[String,Val.Obj.Member],
+  private val map: java.util.LinkedHashMap[String, Val.Obj.Member],
   //private val map: java.util.HashMap[String,Val.Obj.Member],
   //private var len: Int
 ) {
   def this(initialSize: Int) = this(
     //new Array[String](initialSize),
-    new java.util.LinkedHashMap[String,Val.Obj.Member](initialSize*3/2)
+    new java.util.LinkedHashMap[String, Val.Obj.Member](initialSize)
     //new java.util.HashMap[String,Val.Obj.Member](initialSize*3/2),
     //0
   )
@@ -49,4 +49,8 @@ class MemberMap private (
   //def copy(): MemberMap =
   //  new MemberMap(keys.clone(), map.clone().asInstanceOf[java.util.HashMap[String,sjsonnet.Val.Obj.Member]], len)
 }
-*/
+
+object MemberMap {
+  @inline def apply(initialSize: Int): MemberMap = new MemberMap(initialSize)
+  @inline def apply(): MemberMap = new MemberMap(16)
+}

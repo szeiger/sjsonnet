@@ -43,10 +43,10 @@ class StaticOptimizer(rootFileScope: FileScope)(implicit eval: EvalErrorScope)
     case m: ObjBody.MemberList =>
       super.transform(m) match {
         case m @ ObjBody.MemberList(pos, backdrop, binds, fields, asserts) =>
-          if(binds == null && asserts == null && fields.forall(_.isStatic) && (backdrop == null || isStatic(backdrop)))
+          if(binds == null && asserts == null && fields.forall(_.isStatic) && (backdrop == null || backdrop.isStatic))
             Val.staticObject(pos, fields, backdrop)
           else if(fields.forall(_.fieldName.isInstanceOf[Expr.FieldName.Fixed])) {
-            val backdrop = new java.util.LinkedHashMap[String,Val.Obj.Member](fields.length*3/2)
+            val backdrop = MemberMap(fields.length)
             val rest = new mutable.ArrayBuilder.ofRef[Expr.Member.Field]
             fields.foreach { f =>
               val n = f.fieldName.asInstanceOf[Expr.FieldName.Fixed].value
@@ -67,10 +67,6 @@ class StaticOptimizer(rootFileScope: FileScope)(implicit eval: EvalErrorScope)
       }
 
     case e => super.transform(e)
-  }
-
-  def isStatic(m: java.util.LinkedHashMap[String,Val.Obj.Member]): Boolean = {
-    m.asScala.forall { case (k, m) => m.isInstanceOf[Val.Obj.ConstMember] && !m.add && m.visibility == Expr.Member.Visibility.Normal }
   }
 
   override protected[this] def transformFieldName(f: FieldName): FieldName = f match {
