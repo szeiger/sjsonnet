@@ -2,6 +2,8 @@ package sjsonnet
 
 import java.util.BitSet
 
+import scala.collection.mutable
+
 /**
   * [[Expr]]s are the parsed syntax trees of a Jsonnet program. They model the
   * program mostly as-written, except for resolving local variable names and
@@ -140,7 +142,7 @@ object Expr{
 
   trait ObjBody extends Expr
   object ObjBody{
-    case class MemberList(pos: Position, backdrop: java.util.LinkedHashMap[String,Val.Obj.Member], binds: Array[Bind], fields: Array[Member.Field], asserts: Array[Member.AssertStmt]) extends ObjBody
+    case class MemberList(pos: Position, backdrop: java.util.LinkedHashMap[String,Val.Obj.Member], backdropCache: mutable.HashMap[Any, Val], binds: Array[Bind], fields: Array[Member.Field], asserts: Array[Member.AssertStmt]) extends ObjBody
     case class ObjComp(pos: Position,
                        preLocals: Array[Bind],
                        key: Expr,

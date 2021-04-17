@@ -42,11 +42,14 @@ class StaticOptimizer(rootFileScope: FileScope)(implicit eval: EvalErrorScope)
 
     case m: ObjBody.MemberList =>
       super.transform(m) match {
-        case m @ ObjBody.MemberList(pos, backdrop, binds, fields, asserts) =>
-          if(binds == null && asserts == null && fields.forall(_.isStatic) && (backdrop == null || isStatic(backdrop)))
-            Val.staticObject(pos, fields, backdrop)
+        case m @ ObjBody.MemberList(pos, oBackdrop, oBackdropCache, binds, fields, asserts) =>
+          if(binds == null && asserts == null && fields.forall(_.isStatic) && (oBackdrop == null || isStatic(oBackdrop)))
+            Val.staticObject(pos, fields, oBackdropCache)
           else if(fields.forall(_.fieldName.isInstanceOf[Expr.FieldName.Fixed])) {
             val backdrop = new java.util.LinkedHashMap[String,Val.Obj.Member](fields.length*3/2)
+            if(oBackdrop != null) backdrop.putAll(oBackdrop)
+            val backdropCache = new mutable.HashMap[Any, Val]
+            if(oBackdropCache != null) backdropCache.addAll(oBackdropCache)
             val rest = new mutable.ArrayBuilder.ofRef[Expr.Member.Field]
             fields.foreach { f =>
               val n = f.fieldName.asInstanceOf[Expr.FieldName.Fixed].value
@@ -54,6 +57,7 @@ class StaticOptimizer(rootFileScope: FileScope)(implicit eval: EvalErrorScope)
                 case v: Val if f.args == null =>
                   val m = new Val.Obj.ConstMember(f.plus, f.sep, v, true)
                   backdrop.put(n, m)
+                  if(f != null && f.isStatic) backdropCache.put(n, v)
                 case _ =>
                   backdrop.put(n, null)
                   rest.+=(f)
@@ -61,7 +65,8 @@ class StaticOptimizer(rootFileScope: FileScope)(implicit eval: EvalErrorScope)
             }
             //if(fields.length-rest.length != 0)
             //  println(s"creating backdrop for ${fields.length-rest.length} of ${fields.length} in $m")
-            new Expr.ObjBody.MemberList(pos, if(rest.length == fields.length) null else backdrop, binds, rest.result(), asserts)
+            new Expr.ObjBody.MemberList(pos, if(rest.length == fields.length) null else backdrop,
+              if(backdropCache.isEmpty) null else backdropCache, binds, rest.result(), asserts)
           } else m
         case other => other
       }

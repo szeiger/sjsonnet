@@ -99,7 +99,8 @@ class Evaluator(resolver: CachedResolver,
 
       case IfElse(pos, cond, then0, else0) => visitIfElse(pos, cond, then0, else0)
 
-      case ObjBody.MemberList(pos, backdrop, binds, fields, asserts) => visitMemberList(pos, pos, backdrop, binds, fields, asserts, null)
+      case ObjBody.MemberList(pos, backdrop, backdropCache, binds, fields, asserts) =>
+        visitMemberList(pos, pos, backdrop, backdropCache, binds, fields, asserts, null)
 
       case AssertExpr(pos, Member.AssertStmt(value, msg), returned) =>
         visitAssert(pos, value, msg, returned)
@@ -114,7 +115,8 @@ class Evaluator(resolver: CachedResolver,
           Error.fail("Adjacent object literals not allowed in strict mode - Use '+' to concatenate objects", superPos)
         val original = visitExpr(value).cast[Val.Obj]
         ext match {
-          case ObjBody.MemberList(pos, backdrop, binds, fields, asserts) => visitMemberList(pos, superPos, backdrop, binds, fields, asserts, original)
+          case ObjBody.MemberList(pos, backdrop, backdropCache, binds, fields, asserts) =>
+            visitMemberList(pos, superPos, backdrop, backdropCache, binds, fields, asserts, original)
           case ObjBody.ObjComp(pos, preLocals, key, value, postLocals, first, rest) => visitObjComp(superPos, preLocals, key, value, postLocals, first, rest, original)
           case o: Val.Obj => o.addSuper(superPos, original)
         }
@@ -479,7 +481,9 @@ class Evaluator(resolver: CachedResolver,
     arrF
   }
 
-  def visitMemberList(pos: Position, objPos: Position, backdrop: java.util.LinkedHashMap[String,Val.Obj.Member], binds: Array[Bind], fields: Array[Expr.Member.Field], asserts: Array[Expr.Member.AssertStmt], sup: Val.Obj)(implicit scope: ValScope): Val.Obj = {
+  def visitMemberList(pos: Position, objPos: Position, backdrop: java.util.LinkedHashMap[String,Val.Obj.Member],
+                      backdropCache: mutable.HashMap[Any, Val], binds: Array[Bind], fields: Array[Expr.Member.Field],
+                      asserts: Array[Expr.Member.AssertStmt], sup: Val.Obj)(implicit scope: ValScope): Val.Obj = {
     var asserting: Boolean = false
     def assertions(self: Val.Obj): Unit = if (!asserting) {
       asserting = true
@@ -542,7 +546,10 @@ class Evaluator(resolver: CachedResolver,
           builder.put(k, v)
         }
     }
-    new Val.Obj(objPos, builder, false, if(asserts != null) assertions else null, sup)
+    //if(backdropCache != null)
+    //  println(s"Backdrop cache: ${backdropCache.size} of ${builder.size()}")
+    new Val.Obj(objPos, builder, false, if(asserts != null) assertions else null, sup,
+      if(backdropCache != null) backdropCache.clone() else mutable.HashMap.empty[Any, Val])
   }
 
   def visitObjComp(objPos: Position, preLocals: Array[Bind], key: Expr, value: Expr, postLocals: Array[Bind], first: ForSpec, rest: List[CompSpec], sup: Val.Obj)(implicit scope: ValScope): Val.Obj = {

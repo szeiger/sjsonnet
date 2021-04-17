@@ -295,15 +295,10 @@ object Val{
     }
   }
 
-  def staticObject(pos: Position, fields: Array[Expr.Member.Field], backdrop: java.util.LinkedHashMap[String,Val.Obj.Member] = null): Obj = {
+  def staticObject(pos: Position, fields: Array[Expr.Member.Field], backdropCache: mutable.HashMap[Any, Val] = null): Obj = {
     val cache = mutable.HashMap.empty[Any, Val]
     val allKeys = new util.LinkedHashMap[String, java.lang.Boolean]
-    if(backdrop != null) {
-      backdrop.forEach { (k, m) =>
-        if(m != null) cache.put(k, m.asInstanceOf[Val.Obj.ConstMember].v)
-        allKeys.put(k, false)
-      }
-    }
+    if(backdropCache != null) cache.addAll(backdropCache)
     fields.foreach {
       case Expr.Member.Field(_, Expr.FieldName.Fixed(k), _, _, _, rhs: Val.Literal) =>
         cache.put(k, rhs)
