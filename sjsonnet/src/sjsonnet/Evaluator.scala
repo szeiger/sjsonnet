@@ -99,7 +99,7 @@ class Evaluator(resolver: CachedResolver,
 
       case IfElse(pos, cond, then0, else0) => visitIfElse(pos, cond, then0, else0)
 
-      case ObjBody.MemberList(pos, binds, fields, asserts) => visitMemberList(pos, pos, binds, fields, asserts, null)
+      case ObjBody.MemberList(pos, backdrop, binds, fields, asserts) => visitMemberList(pos, pos, backdrop, binds, fields, asserts, null)
 
       case AssertExpr(pos, Member.AssertStmt(value, msg), returned) =>
         visitAssert(pos, value, msg, returned)
@@ -114,7 +114,7 @@ class Evaluator(resolver: CachedResolver,
           Error.fail("Adjacent object literals not allowed in strict mode - Use '+' to concatenate objects", superPos)
         val original = visitExpr(value).cast[Val.Obj]
         ext match {
-          case ObjBody.MemberList(pos, binds, fields, asserts) => visitMemberList(pos, superPos, binds, fields, asserts, original)
+          case ObjBody.MemberList(pos, backdrop, binds, fields, asserts) => visitMemberList(pos, superPos, backdrop, binds, fields, asserts, original)
           case ObjBody.ObjComp(pos, preLocals, key, value, postLocals, first, rest) => visitObjComp(superPos, preLocals, key, value, postLocals, first, rest, original)
           case o: Val.Obj => o.addSuper(superPos, original)
         }
@@ -479,7 +479,7 @@ class Evaluator(resolver: CachedResolver,
     arrF
   }
 
-  def visitMemberList(pos: Position, objPos: Position, binds: Array[Bind], fields: Array[Expr.Member.Field], asserts: Array[Expr.Member.AssertStmt], sup: Val.Obj)(implicit scope: ValScope): Val.Obj = {
+  def visitMemberList(pos: Position, objPos: Position, backdrop: java.util.LinkedHashMap[String,Val.Obj.Member], binds: Array[Bind], fields: Array[Expr.Member.Field], asserts: Array[Expr.Member.AssertStmt], sup: Val.Obj)(implicit scope: ValScope): Val.Obj = {
     var asserting: Boolean = false
     def assertions(self: Val.Obj): Unit = if (!asserting) {
       asserting = true
@@ -515,7 +515,9 @@ class Evaluator(resolver: CachedResolver,
       if(binds == null) null
       else visitBindings(binds, (self, sup) => makeNewScope(self, sup))
 
-    val builder = new java.util.LinkedHashMap[String, Val.Obj.Member]
+    val builder =
+      if(backdrop == null) new java.util.LinkedHashMap[String,Val.Obj.Member](fields.length*3/2)
+      else backdrop.clone().asInstanceOf[java.util.LinkedHashMap[String,Val.Obj.Member]]
     fields.foreach {
       case Member.Field(offset, fieldName, plus, null, sep, rhs) =>
         val k = visitFieldName(fieldName, offset)
@@ -550,7 +552,7 @@ class Evaluator(resolver: CachedResolver,
     )
 
     lazy val newSelf: Val.Obj = {
-      val builder = new java.util.LinkedHashMap[String, Val.Obj.Member]
+      val builder = new java.util.LinkedHashMap[String,Val.Obj.Member]
       for(s <- visitComp(first :: rest, Array(compScope))){
         lazy val newScope: ValScope = s.extend(
           binds,

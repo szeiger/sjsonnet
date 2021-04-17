@@ -133,20 +133,20 @@ object Val{
       def invoke(self: Obj, sup: Obj, fs: FileScope, ev: EvalScope): Val
     }
 
-    class ConstMember(add: Boolean, visibility: Visibility, v: Val, cached: Boolean = true)
+    class ConstMember(add: Boolean, visibility: Visibility, val v: Val, cached: Boolean = true)
       extends Member(add, visibility, cached) {
       def invoke(self: Obj, sup: Obj, fs: FileScope, ev: EvalScope): Val = v
     }
 
     def mk(pos: Position, members: (String, Obj.Member)*): Obj = {
-      val m = new util.LinkedHashMap[String, Obj.Member]()
+      val m = new java.util.LinkedHashMap[String,Val.Obj.Member](members.length*3/2)
       for((k, v) <- members) m.put(k, v)
       new Obj(pos, m, false, null, null)
     }
   }
 
   final class Obj(val pos: Position,
-                  private[this] var value0: util.LinkedHashMap[String, Obj.Member],
+                  private[this] var value0: java.util.LinkedHashMap[String,Val.Obj.Member],
                   static: Boolean,
                   triggerAsserts: Val.Obj => Unit,
                   `super`: Obj,
@@ -155,9 +155,9 @@ object Val{
 
     def getSuper = `super`
 
-    private[this] def getValue0: util.LinkedHashMap[String, Obj.Member] = {
+    private[this] def getValue0: java.util.LinkedHashMap[String,Val.Obj.Member] = {
       if(value0 == null) {
-        value0 = new java.util.LinkedHashMap[String, Val.Obj.Member]
+        value0 = new java.util.LinkedHashMap[String,Val.Obj.Member](allKeys.size()*3/2)
         allKeys.forEach { (k, _) =>
           value0.put(k, new Val.Obj.ConstMember(false, Visibility.Normal, valueCache(k)))
         }
@@ -295,9 +295,15 @@ object Val{
     }
   }
 
-  def staticObject(pos: Position, fields: Array[Expr.Member.Field]): Obj = {
+  def staticObject(pos: Position, fields: Array[Expr.Member.Field], backdrop: java.util.LinkedHashMap[String,Val.Obj.Member] = null): Obj = {
     val cache = mutable.HashMap.empty[Any, Val]
     val allKeys = new util.LinkedHashMap[String, java.lang.Boolean]
+    if(backdrop != null) {
+      backdrop.forEach { (k, m) =>
+        if(m != null) cache.put(k, m.asInstanceOf[Val.Obj.ConstMember].v)
+        allKeys.put(k, false)
+      }
+    }
     fields.foreach {
       case Expr.Member.Field(_, Expr.FieldName.Fixed(k), _, _, _, rhs: Val.Literal) =>
         cache.put(k, rhs)

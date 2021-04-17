@@ -14,14 +14,14 @@ class ScopedExprTransform(rootFileScope: FileScope) extends ExprTransform {
     case LocalExpr(pos, bindings, returned) =>
       nestedBindings(bindings)(rec(e))
 
-    case MemberList(pos, binds, fields, asserts) =>
+    case MemberList(pos, backdrop, binds, fields, asserts) =>
       val fields2 = transformGenericArr(fields)(transformFieldNameOnly)
       nestedBindings(binds) {
         val fields3 = transformGenericArr(fields2)(transformFieldNoName)
         val binds2 = transformBinds(binds)
         val asserts2 = transformAsserts(asserts)
         if((binds2 eq binds) && (fields3 eq fields) && (asserts2 eq asserts)) e
-        else ObjBody.MemberList(pos, binds2, fields3, asserts2)
+        else ObjBody.MemberList(pos, backdrop, binds2, fields3, asserts2)
       }
 
     case Function(pos, params, body) =>

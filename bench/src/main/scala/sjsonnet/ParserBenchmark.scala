@@ -26,7 +26,6 @@ class ParserBenchmark {
     val file = config.file
     val wd = os.pwd
     val path = os.Path(file, wd)
-    var currentPos: Position = null
     this.interp = new Interpreter(
       Map.empty[String, ujson.Value],
       Map.empty[String, ujson.Value],

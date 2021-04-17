@@ -3,6 +3,7 @@ package sjsonnet
 import Expr._
 
 import scala.collection.mutable
+import scala.jdk.CollectionConverters._
 
 class StaticOptimizer(rootFileScope: FileScope)(implicit eval: EvalErrorScope)
   extends ScopedExprTransform(rootFileScope) {
@@ -41,13 +42,35 @@ class StaticOptimizer(rootFileScope: FileScope)(implicit eval: EvalErrorScope)
 
     case m: ObjBody.MemberList =>
       super.transform(m) match {
-        case m @ ObjBody.MemberList(pos, binds, fields, asserts) =>
-          if(binds == null && asserts == null && fields.forall(_.isStatic)) Val.staticObject(pos, fields)
-          else m
+        case m @ ObjBody.MemberList(pos, backdrop, binds, fields, asserts) =>
+          if(binds == null && asserts == null && fields.forall(_.isStatic) && (backdrop == null || isStatic(backdrop)))
+            Val.staticObject(pos, fields, backdrop)
+          else if(fields.forall(_.fieldName.isInstanceOf[Expr.FieldName.Fixed])) {
+            val backdrop = new java.util.LinkedHashMap[String,Val.Obj.Member](fields.length*3/2)
+            val rest = new mutable.ArrayBuilder.ofRef[Expr.Member.Field]
+            fields.foreach { f =>
+              val n = f.fieldName.asInstanceOf[Expr.FieldName.Fixed].value
+              f.rhs match {
+                case v: Val if f.args == null =>
+                  val m = new Val.Obj.ConstMember(f.plus, f.sep, v, true)
+                  backdrop.put(n, m)
+                case _ =>
+                  backdrop.put(n, null)
+                  rest.+=(f)
+              }
+            }
+            //if(fields.length-rest.length != 0)
+            //  println(s"creating backdrop for ${fields.length-rest.length} of ${fields.length} in $m")
+            new Expr.ObjBody.MemberList(pos, if(rest.length == fields.length) null else backdrop, binds, rest.result(), asserts)
+          } else m
         case other => other
       }
 
     case e => super.transform(e)
+  }
+
+  def isStatic(m: java.util.LinkedHashMap[String,Val.Obj.Member]): Boolean = {
+    m.asScala.forall { case (k, m) => m.isInstanceOf[Val.Obj.ConstMember] && !m.add && m.visibility == Expr.Member.Visibility.Normal }
   }
 
   override protected[this] def transformFieldName(f: FieldName): FieldName = f match {

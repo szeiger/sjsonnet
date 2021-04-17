@@ -175,7 +175,7 @@ object Std {
       val func = _func.asFunc
       val obj = _obj.asObj
       val allKeys = obj.allKeyNames
-      val m = new util.LinkedHashMap[String, Val.Obj.Member]()
+      val m = new java.util.LinkedHashMap[String,Val.Obj.Member](allKeys.length*3/2)
       var i = 0
       while(i < allKeys.length) {
         val k = allKeys(i)
@@ -972,7 +972,7 @@ object Std {
             val transformedValue: Array[Val.Lazy] = values.map(v => (() => recursiveTransform(v)): Val.Lazy).toArray
             new Val.Arr(pos, transformedValue)
           case ujson.Obj(valueMap) =>
-            val m = new util.LinkedHashMap[String, Val.Obj.Member]
+            val m = new java.util.LinkedHashMap[String,Val.Obj.Member](valueMap.size*3/2)
             valueMap.foreach { case (k, v) =>
               m.put(k, new Val.Obj.Member(false, Expr.Member.Visibility.Normal) {
                 def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: EvalScope): Val = recursiveTransform(v)

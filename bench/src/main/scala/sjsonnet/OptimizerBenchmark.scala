@@ -48,6 +48,9 @@ class OptimizerBenchmark {
     System.err.println(s"Documents: total=${inputs.size}")
     System.err.println(s"Before: $countBefore")
     System.err.println(s"Static: $countStatic")
+    val bc = new BackdropCounter
+    static.foreach(t => assert(bc.transform(t._1) eq t._1))
+    System.err.println("Backdrop: "+bc)
   }
 
   @Benchmark
@@ -81,5 +84,24 @@ class OptimizerBenchmark {
       s"Total: $total, Val: $vals, Expr: $exprs, Val.Arr: $arrVals, static Expr.Arr: $staticArrExprs, "+
         s"other Expr.Arr: $otherArrExprs, Val.Obj: $staticObjs, static MemberList: $missedStaticObjs, "+
         s"other MemberList: $otherObjs"
+  }
+
+  class BackdropCounter extends ExprTransform {
+    var static, backdrop, other = 0
+    def transform(e: Expr) = {
+      e match {
+        case o: Val.Obj =>
+          static += o.allKeyNames.length
+        case e: Expr.ObjBody.MemberList =>
+          e.fields.foreach { f =>
+            if(f.isStatic) backdrop += 1
+            else other += 1
+          }
+        case _ =>
+      }
+      rec(e)
+    }
+    override def toString =
+      s"Static fields: $static, backdrop fields: $backdrop, other fields: $other"
   }
 }
