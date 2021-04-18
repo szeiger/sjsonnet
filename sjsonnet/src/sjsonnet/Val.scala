@@ -330,53 +330,52 @@ object Val{
         }
         evalRhs(newScope, ev, funDefFileScope, outerPos)
       } else {
+        val newScopeLen = math.max(params.names.length, argsL.length)
         // Initialize positional args
-        val argVals = new Array[Lazy](math.max(params.names.length, argsL.length))
+        val (base, newScope) = defSiteValScope match {
+          case null => (0, ValScope.createSimple(newScopeLen))
+          case s => (s.length, s.extendBy(newScopeLen))
+        }
+        val argVals = newScope.bindings
         val posArgs = if(namedNames == null) argsL.length else argsL.length - namedNames.length
-        System.arraycopy(argsL, 0, argVals, 0, posArgs)
+        System.arraycopy(argsL, 0, argVals, base, posArgs)
         if(namedNames != null) { // Add named args
           var i = 0
+          var j = posArgs
           while(i < namedNames.length) {
             val idx = params.paramMap.getOrElse(namedNames(i),
               Error.fail(s"Function has no parameter ${namedNames(i)}", outerPos))
-            if(argVals(idx) != null)
+            if(argVals(base+idx) != null)
               Error.fail(s"binding parameter a second time: ${namedNames(i)}", outerPos)
-            argVals(idx) = argsL(posArgs + i)
+            argVals(base+idx) = argsL(j)
             i += 1
+            j += 1
           }
         }
         if(argsL.length > params.names.length)
           Error.fail("Too many args, function has " + params.names.length + " parameter(s)", outerPos)
-        var missing: ArrayBuffer[String] = null
-        val newScope = if(params.names.length != argsL.length) { // Args missing -> add defaults
-          lazy val newScope: ValScope = {
-            var i = posArgs
-            while(i < argVals.length) {
-              if(argVals(i) == null) {
-                val default = params.defaultExprs(i)
-                if(default != null) {
-                  argVals(i) = () => evalDefault(default, newScope, ev)
-                } else {
-                  if(missing == null) missing = new ArrayBuffer
-                  missing.+=(params.names(i))
-                }
+        if(params.names.length != argsL.length) { // Args missing -> add defaults
+          var missing: ArrayBuffer[String] = null
+          var i = posArgs
+          var j = base + posArgs
+          while(j < argVals.length) {
+            if(argVals(j) == null) {
+              val default = params.defaultExprs(i)
+              if(default != null) {
+                argVals(j) = () => evalDefault(default, newScope, ev)
+              } else {
+                if(missing == null) missing = new ArrayBuffer
+                missing.+=(params.names(i))
               }
-              i+= 1
             }
-            if(missing != null) {
-              val plural = if(missing.size > 1) "s" else ""
-              Error.fail(s"Function parameter$plural ${missing.mkString(", ")} not bound in call", outerPos)
-            }
-            //println(argVals.mkString(s"params: ${params.names.length}, argsL: ${argsL.length}, argVals: [", ", ", "]"))
-            defSiteValScope match {
-              case null => ValScope.createSimple(argVals)
-              case s => s.extendSimple(argVals)
-            }
+            i += 1
+            j += 1
           }
-          newScope
-        } else defSiteValScope match {
-          case null => ValScope.createSimple(argVals)
-          case s => s.extendSimple(argVals)
+          if(missing != null) {
+            val plural = if(missing.size > 1) "s" else ""
+            Error.fail(s"Function parameter$plural ${missing.mkString(", ")} not bound in call", outerPos)
+          }
+          //println(argVals.mkString(s"params: ${params.names.length}, argsL: ${argsL.length}, argVals: [", ", ", "]"))
         }
         evalRhs(newScope, ev, funDefFileScope, outerPos)
       }
@@ -394,7 +393,8 @@ object Val{
       }
     }
 
-    def apply1(argVal: Val, outerPos: Position)(implicit ev: EvalScope): Val = apply1(new Val.Strict(argVal), outerPos)
+    def apply1(argVal: Val, outerPos: Position)(implicit ev: EvalScope): Val =
+      apply1(new Val.Strict(argVal), outerPos)
 
     def apply2(argVal1: Lazy, argVal2: Lazy, outerPos: Position)(implicit ev: EvalScope): Val = {
       if(params.names.length != 2) apply(Array(argVal1, argVal2), null, outerPos)
@@ -428,88 +428,8 @@ object Val{
 
     def evalRhs(args: Array[Val], ev: EvalScope, pos: Position): Val
 
-    /*
-    override def apply(argsL: Array[Lazy], namedNames: Array[String], outerPos: Position)
-                      (implicit ev: EvalScope): Val = {
-      val simple = namedNames == null && params.names.length == argsL.length
-      val funDefFileScope: FileScope = pos match { case null => outerPos.fileScope case p => p.fileScope }
-      //println(s"apply: argsL: ${argsL.length}, namedNames: $namedNames, paramNames: ${params.names.mkString(",")}")
-      if(simple) evalRhs(simpleNewScope, ev, funDefFileScope, outerPos)
-      else {
-        // Initialize positional args
-        val argVals = new Array[Lazy](math.max(params.names.length, argsL.length))
-        val posArgs = if(namedNames == null) argsL.length else argsL.length - namedNames.length
-        System.arraycopy(argsL, 0, argVals, 0, posArgs)
-        if(namedNames != null) { // Add named args
-          var i = 0
-          while(i < namedNames.length) {
-            val idx = params.paramMap.getOrElse(namedNames(i),
-              Error.fail(s"Function has no parameter ${namedNames(i)}", outerPos))
-            if(argVals(idx) != null)
-              Error.fail(s"binding parameter a second time: ${namedNames(i)}", outerPos)
-            argVals(idx) = argsL(posArgs + i)
-            i += 1
-          }
-        }
-        if(argsL.length > params.names.length)
-          Error.fail("Too many args, function has " + params.names.length + " parameter(s)", outerPos)
-        var missing: ArrayBuffer[String] = null
-        val newScope = if(params.names.length != argsL.length) { // Args missing -> add defaults
-          var i = posArgs
-          while(i < argVals.length) {
-            if(argVals(i) == null) {
-              if(missing == null) missing = new ArrayBuffer
-              missing.+=(params.names(i))
-            }
-            i+= 1
-          }
-          if(missing != null) {
-            val plural = if(missing.size > 1) "s" else ""
-            Error.fail(s"Function parameter$plural ${missing.mkString(", ")} not bound in call", outerPos)
-          }
-          //println(argVals.mkString(s"params: ${params.names.length}, argsL: ${argsL.length}, argVals: [", ", ", "]"))
-          defSiteValScope match {
-            case null => ValScope.createSimple(argVals)
-            case s => s.extendSimple(argVals)
-          }
-        } else simpleNewScope
-        evalRhs(newScope, ev, funDefFileScope, outerPos)
-      }
-
-      /*
-      val simple = namedNames == null && params.names.length == argsL.length
-
-      val passedArgsBindingsI = if(argNames != null) {
-        val arrI: Array[Int] = new Array(argsSize)
-        var i = 0
-        try {
-          while (i < argsSize) {
-            val aname = argNames(i)
-            arrI(i) = if(aname != null) params.argIndices.getOrElse(
-              aname,
-              Error.fail(s"Function has no parameter $aname", outerPos)
-            ) else params.indices(i)
-            i += 1
-          }
-        } catch { case e: IndexOutOfBoundsException =>
-          Error.fail("Too many args, function has " + params.names.length + " parameter(s)", outerPos)
-        }
-        arrI
-      } else if(params.names.length < argsSize) {
-        Error.fail(
-          "Too many args, function has " + params.names.length + " parameter(s)",
-          outerPos
-        )
-      } else params.indices // Don't cut down to size to avoid copying. The correct size is argVals.length!
-
-      val newScope = ValScope.createSimple(argVals)
-      if(!simple) ??? //validateFunctionCall(passedArgsBindingsI, params, outerPos, outerPos.fileScope, argsSize)
-
-      evalRhs(newScope, ev, outerPos.fileScope, outerPos)*/
-    }*/
-
     override def apply1(argVal: Val, outerPos: Position)(implicit ev: EvalScope): Val =
-      if(params.names.length != 1) apply(Array(() => argVal), null, outerPos)
+      if(params.names.length != 1) apply(Array(new Val.Strict(argVal)), null, outerPos)
       else evalRhs(Array(argVal), ev, outerPos)
 
     override def apply1(argVal: Lazy, outerPos: Position)(implicit ev: EvalScope): Val =
@@ -517,7 +437,7 @@ object Val{
       else evalRhs(Array(argVal.force), ev, outerPos)
 
     override def apply2(argVal1: Val, argVal2: Val, outerPos: Position)(implicit ev: EvalScope): Val =
-      if(params.names.length != 2) apply(Array(() => argVal1, () => argVal2), null, outerPos)
+      if(params.names.length != 2) apply(Array(new Val.Strict(argVal1), new Val.Strict(argVal2)), null, outerPos)
       else evalRhs(Array(argVal1, argVal2), ev, outerPos)
 
     override def apply2(argVal1: Lazy, argVal2: Lazy, outerPos: Position)(implicit ev: EvalScope): Val =
@@ -537,7 +457,7 @@ object Val{
 
     override def apply1(argVal: Val, outerPos: Position)(implicit ev: EvalScope): Val =
       if(params.names.length == 1) evalRhs(argVal, ev, outerPos)
-      else super.apply(Array(() => argVal), null, outerPos)
+      else super.apply(Array(new Val.Strict(argVal)), null, outerPos)
 
     override def apply1(argVal: Lazy, outerPos: Position)(implicit ev: EvalScope): Val =
       if(params.names.length == 1) evalRhs(argVal.force, ev, outerPos)
@@ -557,7 +477,7 @@ object Val{
 
     override def apply2(argVal1: Val, argVal2: Val, outerPos: Position)(implicit ev: EvalScope): Val =
       if(params.names.length == 2) evalRhs(argVal1, argVal2, ev, outerPos)
-      else super.apply(Array(() => argVal1, () => argVal2), null, outerPos)
+      else super.apply(Array(new Val.Strict(argVal1), new Val.Strict(argVal2)), null, outerPos)
 
     override def apply2(argVal1: Lazy, argVal2: Lazy, outerPos: Position)(implicit ev: EvalScope): Val =
       if(params.names.length == 2) evalRhs(argVal1.force, argVal2.force, ev, outerPos)

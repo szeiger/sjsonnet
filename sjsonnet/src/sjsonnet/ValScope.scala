@@ -20,11 +20,9 @@ import java.util.Arrays
 class ValScope(val dollar0: Val.Obj,
                val self0: Val.Obj,
                val super0: Val.Obj,
-               bindings0: Array[Val.Lazy]) {
+               val bindings: Array[Val.Lazy]) {
 
-  @inline def bindings(k: Int): Val.Lazy = bindings0(k)
-
-  def length: Int = bindings0.length
+  def length: Int = bindings.length
 
   def extend(newBindingsF: Array[(Val.Obj, Val.Obj) => Val.Lazy] = null,
              newDollar: Val.Obj = null,
@@ -37,11 +35,11 @@ class ValScope(val dollar0: Val.Obj,
       dollar,
       self,
       sup,
-      if (newBindingsF == null || newBindingsF.length == 0) bindings0
+      if (newBindingsF == null || newBindingsF.length == 0) bindings
       else {
-        val b = Arrays.copyOf(bindings0, bindings0.length + newBindingsF.length)
+        val b = Arrays.copyOf(bindings, bindings.length + newBindingsF.length)
         var i = 0
-        var j = bindings0.length
+        var j = bindings.length
         while(i < newBindingsF.length) {
           b(j) = newBindingsF(i).apply(self, sup)
           i += 1
@@ -52,25 +50,36 @@ class ValScope(val dollar0: Val.Obj,
     )
   }
 
+  def extendBy(num: Int, newDollar: Val.Obj, newSelf: Val.Obj, newSuper: Val.Obj) = {
+    val dollar = if (newDollar != null) newDollar else dollar0
+    val self = if (newSelf != null) newSelf else self0
+    val sup = if (newSuper != null) newSuper else super0
+    new ValScope(dollar, self, sup, Arrays.copyOf(bindings, bindings.length + num))
+  }
+
   def extendSimple(newBindingsV: Array[Val.Lazy]) = {
     if(newBindingsV == null || newBindingsV.length == 0) this
     else {
-      val b = Arrays.copyOf(bindings0, bindings0.length + newBindingsV.length)
-      System.arraycopy(newBindingsV, 0, b, bindings0.length, newBindingsV.length)
+      val b = Arrays.copyOf(bindings, bindings.length + newBindingsV.length)
+      System.arraycopy(newBindingsV, 0, b, bindings.length, newBindingsV.length)
       new ValScope(dollar0, self0, super0, b)
     }
   }
 
+  def extendBy(num: Int) =
+    if(num == 0) this
+    else new ValScope(dollar0, self0, super0, Arrays.copyOf(bindings, bindings.length + num))
+
   def extendSimple(l1: Val.Lazy) = {
-    val b = Arrays.copyOf(bindings0, bindings0.length+1)
-    b(bindings0.length) = l1
+    val b = Arrays.copyOf(bindings, bindings.length+1)
+    b(bindings.length) = l1
     new ValScope(dollar0, self0, super0, b)
   }
 
   def extendSimple(l1: Val.Lazy, l2: Val.Lazy) = {
-    val b = Arrays.copyOf(bindings0, bindings0.length+2)
-    b(bindings0.length) = l1
-    b(bindings0.length+1) = l2
+    val b = Arrays.copyOf(bindings, bindings.length+2)
+    b(bindings.length) = l1
+    b(bindings.length+1) = l2
     new ValScope(dollar0, self0, super0, b)
   }
 }
@@ -87,6 +96,9 @@ object ValScope{
 
   def createSimple(newBindingsV: Array[Val.Lazy]) =
     new ValScope(null, null, null, newBindingsV)
+
+  def createSimple(len: Int) =
+    new ValScope(null, null, null, new Array[Val.Lazy](len))
 
   final val INVALID_IDX = -1
 }

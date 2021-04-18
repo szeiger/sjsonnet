@@ -91,9 +91,16 @@ class Evaluator(resolver: CachedResolver,
       case LocalExpr(pos, bindings, returned) =>
         val s =
           if(bindings == null) scope else {
-            lazy val newScope: ValScope = {
-              val f = visitBindings(bindings, (self, sup) => newScope)
-              scope.extend(f)
+            val base = scope.length
+            val newScope = scope.extendBy(bindings.length)
+            var i = 0
+            while(i < bindings.length) {
+              val b = bindings(i)
+              newScope.bindings(base+i) = b.args match {
+                case null => () => visitExpr(b.rhs)(newScope)
+                case argSpec => () => visitMethod(b.rhs, argSpec, b.pos)(newScope)
+              }
+              i += 1
             }
             newScope
           }
@@ -500,17 +507,26 @@ class Evaluator(resolver: CachedResolver,
     }
 
     def makeNewScope(self: Val.Obj, sup: Val.Obj): ValScope = {
-      scope.extend(
-        newBindings,
-        newDollar = if(scope.dollar0 != null) scope.dollar0 else self,
-        newSelf = self,
-        newSuper = sup
-      )
+      if(binds == null)
+        scope.extend(null, if(scope.dollar0 != null) scope.dollar0 else self, self, sup)
+      else {
+        val scopeLen = scope.length
+        val newScope = scope.extendBy(binds.length, if(scope.dollar0 != null) scope.dollar0 else self, self, sup)
+        val arrF = newScope.bindings
+        var i = 0
+        while(i < binds.length) {
+          val b = binds(i)
+          arrF(scopeLen+i) = b.args match {
+            case null =>
+              () => visitExpr(b.rhs)(makeNewScope(self, sup))
+            case argSpec =>
+              () => visitMethod(b.rhs, argSpec, b.pos)(makeNewScope(self, sup))
+          }
+          i += 1
+        }
+        newScope
+      }
     }
-
-    lazy val newBindings =
-      if(binds == null) null
-      else visitBindings(binds, (self, sup) => makeNewScope(self, sup))
 
     val builder = new java.util.LinkedHashMap[String, Val.Obj.Member]
     fields.foreach {
