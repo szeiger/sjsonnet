@@ -82,10 +82,14 @@ class ValScope(val dollar0: Val.Obj,
     b(bindings.length+1) = l2
     new ValScope(dollar0, self0, super0, b)
   }
+
+  def closureScope: ValScope =
+    if(dollar0 == null && self0 == null && super0 == null) null
+    else new ValScope(dollar0, self0, super0, ValScope.emptyArr)
 }
 
 object ValScope{
-  private[this] val emptyArr = new Array[Val.Lazy](0)
+  private val emptyArr = new Array[Val.Lazy](0)
   def empty = new ValScope(null, null, null, emptyArr)
 
   def createSimple(newBindingV: Val.Lazy) = {
@@ -99,6 +103,4 @@ object ValScope{
 
   def createSimple(len: Int) =
     new ValScope(null, null, null, new Array[Val.Lazy](len))
-
-  final val INVALID_IDX = -1
 }

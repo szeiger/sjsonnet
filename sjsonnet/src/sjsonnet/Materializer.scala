@@ -109,7 +109,7 @@ object Materializer {
         ev.emptyMaterializeFileScopePos,
         null,
         for((k, v) <- kvs.toArray)
-          yield Member.Field(ev.emptyMaterializeFileScopePos, FieldName.Fixed(k), false, null, Visibility.Normal, toExpr(v)),
+          yield Member.Field(ev.emptyMaterializeFileScopePos, FieldName.Fixed(k), false, null, Visibility.Normal, toExpr(v), false),
         null
       )
   }

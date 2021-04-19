@@ -29,8 +29,8 @@ class Evaluator(resolver: CachedResolver,
   def visitExpr(expr: Expr)
                (implicit scope: ValScope): Val = try {
     expr match {
-      case ValidId(pos, nameIdx) =>
-        val ref = scope.bindings(nameIdx)
+      case ValidId(pos, nameIdx, _) =>
+        val ref = scope.bindings(scope.length-nameIdx)
         try ref.force catch Error.tryCatchWrap(pos)
 
       case Select(pos, value, name) => visitSelect(pos, value, name)
@@ -86,7 +86,14 @@ class Evaluator(resolver: CachedResolver,
         if(self == null) Error.fail("Cannot use `self` outside an object", pos)
         self
 
-      case Function(pos, params, body) => visitMethod(body, params, pos)
+      case f @ Function(pos, params, body, true) =>
+        if(f.cachedClosure == null) {
+          val c = visitMethod(body, params, pos, true)
+          //f.cachedClosure = c
+          c
+        } else f.cachedClosure
+
+      case Function(pos, params, body, closure) => visitMethod(body, params, pos, closure)
 
       case LocalExpr(pos, bindings, returned) =>
         val s =
@@ -98,7 +105,7 @@ class Evaluator(resolver: CachedResolver,
               val b = bindings(i)
               newScope.bindings(base+i) = b.args match {
                 case null => () => visitExpr(b.rhs)(newScope)
-                case argSpec => () => visitMethod(b.rhs, argSpec, b.pos)(newScope)
+                case argSpec => () => visitMethod(b.rhs, argSpec, b.pos, b.closure)(newScope)
               }
               i += 1
             }
@@ -144,7 +151,7 @@ class Evaluator(resolver: CachedResolver,
 
       case Expr.Error(pos, value) => visitError(pos, value)
 
-      case Id(pos, name, _) =>
+      case Id(pos, name) =>
         Error.fail("Unknown variable " + name, pos)
     }
   } catch Error.tryCatch(expr.pos)
@@ -462,8 +469,8 @@ class Evaluator(resolver: CachedResolver,
     }
   }
 
-  def visitMethod(rhs: Expr, params: Params, outerPos: Position)(implicit scope: ValScope) =
-    new Val.Func(outerPos, scope, params) {
+  def visitMethod(rhs: Expr, params: Params, outerPos: Position, closure: Boolean)(implicit scope: ValScope) =
+    new Val.Func(outerPos, if(closure) null else scope, params) {
       def evalRhs(vs: ValScope, es: EvalScope, fs: FileScope, pos: Position): Val = visitExpr(rhs)(vs)
       override def evalDefault(expr: Expr, vs: ValScope, es: EvalScope) = visitExpr(expr)(vs)
     }
@@ -477,7 +484,7 @@ class Evaluator(resolver: CachedResolver,
         case null =>
           (self: Val.Obj, sup: Val.Obj) => () => visitExpr(b.rhs)(scope(self, sup))
         case argSpec =>
-          (self: Val.Obj, sup: Val.Obj) => () => visitMethod(b.rhs, argSpec, b.pos)(scope(self, sup))
+          (self: Val.Obj, sup: Val.Obj) => () => visitMethod(b.rhs, argSpec, b.pos, b.closure)(scope(self, sup))
       }
       i += 1
     }
@@ -520,7 +527,7 @@ class Evaluator(resolver: CachedResolver,
             case null =>
               () => visitExpr(b.rhs)(makeNewScope(self, sup))
             case argSpec =>
-              () => visitMethod(b.rhs, argSpec, b.pos)(makeNewScope(self, sup))
+              () => visitMethod(b.rhs, argSpec, b.pos, b.closure)(makeNewScope(self, sup))
           }
           i += 1
         }
@@ -530,7 +537,7 @@ class Evaluator(resolver: CachedResolver,
 
     val builder = new java.util.LinkedHashMap[String, Val.Obj.Member]
     fields.foreach {
-      case Member.Field(offset, fieldName, plus, null, sep, rhs) =>
+      case Member.Field(offset, fieldName, plus, null, sep, rhs, _) =>
         val k = visitFieldName(fieldName, offset)
         if(k != null) {
           val v = new Val.Obj.Member(plus, sep) {
@@ -541,13 +548,13 @@ class Evaluator(resolver: CachedResolver,
           }
           builder.put(k, v)
         }
-      case Member.Field(offset, fieldName, false, argSpec, sep, rhs) =>
+      case Member.Field(offset, fieldName, false, argSpec, sep, rhs, closure) =>
         val k = visitFieldName(fieldName, offset)
         if(k != null) {
           val v = new Val.Obj.Member(false, sep) {
             def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: EvalScope): Val = {
               if(asserts != null) assertions(self)
-              visitMethod(rhs, argSpec, offset)(makeNewScope(self, sup))
+              visitMethod(rhs, argSpec, offset, closure)(makeNewScope(self, sup))
             }
           }
           builder.put(k, v)

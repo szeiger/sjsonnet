@@ -300,7 +300,7 @@ object Val{
     val cache = mutable.HashMap.empty[Any, Val]
     val allKeys = new util.LinkedHashMap[String, java.lang.Boolean]
     fields.foreach {
-      case Expr.Member.Field(_, Expr.FieldName.Fixed(k), _, _, _, rhs: Val.Literal) =>
+      case Expr.Member.Field(_, Expr.FieldName.Fixed(k), _, _, _, rhs: Val.Literal, _) =>
         cache.put(k, rhs)
         allKeys.put(k, false)
     }

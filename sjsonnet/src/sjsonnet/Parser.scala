@@ -153,7 +153,7 @@ class Parser(val currentFile: Path) {
     P( assertStmt ~ ";" ~ expr ).map(t => Expr.AssertExpr(pos, t._1, t._2))
 
   def function[_: P](pos: Position): P[Expr] =
-    P( "(" ~/ params ~ ")" ~ expr ).map(t => Expr.Function(pos, t._1, t._2))
+    P( "(" ~/ params ~ ")" ~ expr ).map(t => Expr.Function(pos, t._1, t._2, false))
 
   def ifElse[_: P](pos: Position): P[Expr] =
     P( Pos ~~ expr ~ "then" ~~ break ~ expr ~ ("else" ~~ break ~ expr).?.map(_.getOrElse(null)) ).map(Expr.IfElse.tupled)
@@ -282,7 +282,7 @@ class Parser(val currentFile: Path) {
               case "error"     => Pass ~ error(pos)
               case "assert"    => Pass ~ assertExpr(pos)
               case "local"     => Pass ~ local
-              case x           => Pass(Expr.Id(pos, x, ValScope.INVALID_IDX))
+              case x           => Pass(Expr.Id(pos, x))
             }
           }
           case _ => Fail
@@ -297,7 +297,7 @@ class Parser(val currentFile: Path) {
     val seen = collection.mutable.Set.empty[String]
     var overlap: String = null
     exprs.foreach {
-      case Expr.Member.Field(_, Expr.FieldName.Fixed(n), _, _, _, _) =>
+      case Expr.Member.Field(_, Expr.FieldName.Fixed(n), _, _, _, _, _) =>
         if(seen(n)) overlap = n
         else seen.add(n)
       case _ =>
@@ -321,7 +321,7 @@ class Parser(val currentFile: Path) {
       val preLocals = exprs
         .takeWhile(_.isInstanceOf[Expr.Bind])
         .map(_.asInstanceOf[Expr.Bind])
-      val Expr.Member.Field(offset, Expr.FieldName.Dyn(lhs), _, null, Visibility.Normal, rhs) =
+      val Expr.Member.Field(offset, Expr.FieldName.Dyn(lhs), _, null, Visibility.Normal, rhs, _) =
         exprs(preLocals.length)
       val postLocals = exprs.drop(preLocals.length+1).takeWhile(_.isInstanceOf[Expr.Bind])
         .map(_.asInstanceOf[Expr.Bind])
@@ -346,7 +346,7 @@ class Parser(val currentFile: Path) {
   def field[_: P] = P(
     (Pos ~~ fieldname ~/ "+".!.? ~ ("(" ~ params ~ ")").? ~ fieldKeySep ~/ expr).map{
       case (pos, name, plus, p, h2, e) =>
-        Expr.Member.Field(pos, name, plus.nonEmpty, p.getOrElse(null), h2, e)
+        Expr.Member.Field(pos, name, plus.nonEmpty, p.getOrElse(null), h2, e, false)
     }
   )
   def fieldKeySep[_: P] = P( StringIn(":::", "::", ":") ).!.map{
@@ -368,7 +368,8 @@ class Parser(val currentFile: Path) {
     P( expr ~ (":" ~ expr).?.map(_.getOrElse(null)) ).map(Expr.Member.AssertStmt.tupled)
 
   def bind[_: P] =
-    P( Pos ~~ id ~ ("(" ~/ params.? ~ ")").?.map(_.flatten).map(_.getOrElse(null)) ~ "=" ~ expr ).map(Expr.Bind.tupled)
+    P( Pos ~~ id ~ ("(" ~/ params.? ~ ")").?.map(_.flatten).map(_.getOrElse(null)) ~ "=" ~ expr ).map {
+      case (pos, name, args, rhs) => Expr.Bind(pos, name, args, rhs, false) }
 
   def args[_: P] = P( ((id ~ "=").? ~ expr).rep(sep = ",") ~ ",".? ).flatMapX{ x =>
     if (x.sliding(2).exists{case Seq(l, r) => l._1.isDefined && r._1.isEmpty case _ => false}) {

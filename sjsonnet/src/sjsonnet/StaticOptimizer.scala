@@ -1,13 +1,23 @@
 package sjsonnet
 
+import java.util
+
 import Expr._
 import ScopedExprTransform._
 
-class StaticOptimizer(rootFileScope: FileScope)(implicit eval: EvalErrorScope)
-  extends ScopedExprTransform(rootFileScope) {
+import scala.util.control.Breaks
+
+class StaticOptimizer(implicit eval: EvalErrorScope)
+  extends ScopedExprTransform {
+
+  private val closureId = new ClosureIdentifyer
+
+  def optimize(root: Expr): Expr = {
+    (new ClosureInliner).transform(transform(root))
+  }
 
   override def transform(e: Expr): Expr = e match {
-    case Apply(pos, Select(_, Id(_, "std", _), name), args, null) if(scope.get("std") == null) =>
+    case Apply(pos, Select(_, Id(_, "std"), name), args, null) if(scope.get("std") == null) =>
       //println(s"----- std.$name(#${args.length}) call")
       Std.functions.getOrElse(name, null) match {
         case f: Val.Builtin =>
@@ -22,17 +32,17 @@ class StaticOptimizer(rootFileScope: FileScope)(implicit eval: EvalErrorScope)
         case _ => rec(e)
       }
 
-    case Select(_, Id(_, "std", _), name) if(scope.get("std") == null) =>
+    case Select(_, Id(_, "std"), name) if(scope.get("std") == null) =>
       Std.functions.getOrElse(name, null) match {
         case null => rec(e)
         case f => f
       }
 
-    case Id(pos, name, _) =>
+    case Id(pos, name) =>
       val v = scope.get(name)
       v match {
         case ScopedVal(v: Val with Expr, _, _) => v
-        case ScopedVal(e, _, idx) => ValidId(pos, idx)
+        case ScopedVal(e, _, idx) => ValidId(pos, scope.size-idx, name)
         case null if name == "std" => Std.Std
         case _ => e
       }
@@ -52,10 +62,25 @@ class StaticOptimizer(rootFileScope: FileScope)(implicit eval: EvalErrorScope)
         case other => other
       }
 
+    case _: Function =>
+      super.transform(e) match {
+        case f @ Expr.Function(pos, params, body, false) if closureId.isClosed(scope)(_.transform(f)) =>
+          Expr.Function(pos, params, body, true)
+        case f => f
+      }
+
     case e => super.transform(e)
   }
 
-  override protected[this] def transformFieldName(f: FieldName): FieldName = f match {
+  override def transformBind(b: Bind): Bind = {
+    val b2 = super.transformBind(b)
+    if(b2.args != null && closureId.isClosed(scope)(_.transformBind(b2))) {
+      //println(s"--- Bind closure: $b2")
+      b2.copy(closure = true)
+    } else b2
+  }
+
+  override def transformFieldName(f: FieldName): FieldName = f match {
     case FieldName.Dyn(x) =>
       transform(x) match {
         case x2: Val.Str =>
@@ -65,5 +90,70 @@ class StaticOptimizer(rootFileScope: FileScope)(implicit eval: EvalErrorScope)
         case x2 => FieldName.Dyn(x2)
       }
     case _ => f
+  }
+
+  override def transformFieldNoName(f: Expr.Member.Field): Expr.Member.Field = {
+    val f2 = super.transformFieldNoName(f)
+    if(f2.args != null && closureId.isClosed(scope)(_.transformFieldNoName(f2))) {
+      f2.copy(closure = true)
+    } else f2
+  }
+}
+
+class ClosureIdentifyer extends ScopedExprTransform {
+  private var minIdx = Int.MaxValue
+  private var target: Int = 0
+  private var seenObj: Boolean = false
+  def isClosed[T](sc: ScopedExprTransform.Scope)(f: this.type => T): Boolean = {
+    minIdx = Int.MaxValue
+    target = sc.size
+    seenObj = false
+    Breaks.breakable(nestedNew(sc)(f(this)))
+    minIdx >= target
+  }
+  override def transform(e: Expr): Expr = e match {
+    case Expr.ValidId(_, deBrujin, _) =>
+      val idx = scope.size - deBrujin
+      if(idx < minIdx) minIdx = idx
+      if(minIdx < target) Breaks.break()
+      e
+    case e: Expr.ObjBody =>
+      val b = seenObj
+      seenObj = true
+      val e2 = super.transform(e)
+      seenObj = b
+      e2
+    case _: Expr.$ =>
+      minIdx = -1
+      Breaks.break()
+    case (_: Expr.Self | _: Expr.Super) if !seenObj =>
+      minIdx = -1
+      Breaks.break()
+    case e => super.transform(e)
+  }
+}
+
+class ClosureInliner extends ScopedExprTransform {
+  private val cache = new util.IdentityHashMap[AnyRef, Expr.Function]()
+
+  override def transform(e: Expr): Expr = super.transform(e) match {
+    case e2 @ Expr.ValidId(_, _, name) =>
+      scope.get(name).v match {
+        case c: Expr.Function if c.closure =>
+          c
+        case b @ Expr.Bind(pos, name, args, rhs, true) =>
+          //println(s"---- Inlining $b")
+          var cached = cache.get(b)
+          if(cached == null) {
+            cached = Expr.Function(pos, args, rhs, true)
+            cache.put(b, cached)
+          }
+          cached
+        case _ => e2
+      }
+    case e2 @ Expr.Apply(_, Expr.Function(_, _, v: Val, _), _, _) =>
+      //println(s"----- Inlining constant function $e2")
+      v
+    case e2 => e2
   }
 }

@@ -24,8 +24,8 @@ object Expr{
   case class Super(pos: Position) extends Expr
   case class $(pos: Position) extends Expr
 
-  case class Id(pos: Position, name: String, nameIdx: Int) extends Expr
-  case class ValidId(pos: Position, nameIdx: Int) extends Expr
+  case class Id(pos: Position, name: String) extends Expr
+  case class ValidId(pos: Position, deBrujin: Int, name: String) extends Expr
   case class Arr(pos: Position, value: Array[Expr]) extends Expr {
     override def toString = s"Arr($pos, ${arrStr(value)})"
   }
@@ -51,7 +51,8 @@ object Expr{
                      plus: Boolean,
                      args: Params,
                      sep: Visibility,
-                     rhs: Expr) extends Member {
+                     rhs: Expr,
+                     closure: Boolean) extends Member {
       def isStatic = fieldName.isInstanceOf[FieldName.Fixed] && !plus && args == null && sep == Visibility.Normal && rhs.isInstanceOf[Val.Literal]
     }
     case class AssertStmt(value: Expr, msg: Expr) extends Member
@@ -102,7 +103,7 @@ object Expr{
     override def toString = s"LocalExpr($pos, ${arrStr(bindings)}, $returned)"
   }
 
-  case class Bind(pos: Position, name: String, args: Params, rhs: Expr) extends Member
+  case class Bind(pos: Position, name: String, args: Params, rhs: Expr, closure: Boolean) extends Member
   case class Import(pos: Position, value: String) extends Expr
   case class ImportStr(pos: Position, value: String) extends Expr
   case class Error(pos: Position, value: Expr) extends Expr
@@ -117,7 +118,9 @@ object Expr{
                    start: Option[Expr],
                    end: Option[Expr],
                    stride: Option[Expr]) extends Expr
-  case class Function(pos: Position, params: Params, body: Expr) extends Expr
+  case class Function(pos: Position, params: Params, body: Expr, closure: Boolean) extends Expr {
+    var cachedClosure: Val.Func = null
+  }
   case class IfElse(pos: Position, cond: Expr, then: Expr, `else`: Expr) extends Expr
 
   sealed trait CompSpec extends Expr

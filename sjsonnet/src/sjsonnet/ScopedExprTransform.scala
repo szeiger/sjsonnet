@@ -5,7 +5,7 @@ import sjsonnet.Expr._
 
 import scala.collection.immutable.HashMap
 
-class ScopedExprTransform(rootFileScope: FileScope) extends ExprTransform {
+class ScopedExprTransform extends ExprTransform {
   import ScopedExprTransform._
   var scope: Scope = emptyScope
 
@@ -26,7 +26,7 @@ class ScopedExprTransform(rootFileScope: FileScope) extends ExprTransform {
         else ObjBody.MemberList(pos, binds2, fields3, asserts2)
       }
 
-    case Function(pos, params, body) =>
+    case Function(pos, params, body, closure) =>
       nestedNames(params.names)(rec(e))
 
     case ObjComp(pos, preLocals, key, value, postLocals, first, rest) =>
@@ -46,7 +46,7 @@ class ScopedExprTransform(rootFileScope: FileScope) extends ExprTransform {
     case e => rec(e)
   }
 
-  override protected[this] def transformBind(b: Bind): Bind = {
+  override def transformBind(b: Bind): Bind = {
     val args = b.args
     val rhs = b.rhs
     nestedNames(if(args == null) null else args.names) {
@@ -57,13 +57,13 @@ class ScopedExprTransform(rootFileScope: FileScope) extends ExprTransform {
     }
   }
 
-  protected[this] def transformFieldNameOnly(f: Member.Field): Member.Field = {
+  def transformFieldNameOnly(f: Member.Field): Member.Field = {
     val x = f.fieldName
     val x2 = transformFieldName(x)
     if(x2 eq x) f else f.copy(fieldName = x2)
   }
 
-  protected[this] def transformFieldNoName(f: Member.Field): Member.Field = {
+  def transformFieldNoName(f: Member.Field): Member.Field = {
     def g = {
       val y = f.args
       val z = f.rhs
@@ -75,7 +75,7 @@ class ScopedExprTransform(rootFileScope: FileScope) extends ExprTransform {
     else nestedNames(f.args.names)(g)
   }
 
-  override protected[this] def transformField(f: Member.Field): Member.Field = ???
+  override def transformField(f: Member.Field): Member.Field = ???
 
   protected[this] def compSpecs[T](a: List[CompSpec], value: () => T): (List[CompSpec], T) = a match {
     case (c @ ForSpec(pos, name, cond)) :: cs =>
