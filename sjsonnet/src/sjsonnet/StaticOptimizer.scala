@@ -7,7 +7,7 @@ class StaticOptimizer(rootFileScope: FileScope)(implicit eval: EvalErrorScope)
   extends ScopedExprTransform(rootFileScope) {
 
   override def transform(e: Expr): Expr = e match {
-    case Apply(pos, Select(_, Id(_, "std", _), name), args, null) if(scope.get("std") == null) =>
+    case Apply(pos, Select(_, Id(_, "std"), name), args, null) if(scope.get("std") == null) =>
       //println(s"----- std.$name(#${args.length}) call")
       Std.functions.getOrElse(name, null) match {
         case f: Val.Builtin =>
@@ -24,17 +24,17 @@ class StaticOptimizer(rootFileScope: FileScope)(implicit eval: EvalErrorScope)
 
     case a: Apply => transformApply(a)
 
-    case Select(_, Id(_, "std", _), name) if(scope.get("std") == null) =>
+    case Select(_, Id(_, "std"), name) if(scope.get("std") == null) =>
       Std.functions.getOrElse(name, null) match {
         case null => rec(e)
         case f => f
       }
 
-    case Id(pos, name, _) =>
+    case Id(pos, name) =>
       val v = scope.get(name)
       v match {
         case ScopedVal(v: Val with Expr, _, _) => v
-        case ScopedVal(e, _, idx) => ValidId(pos, name, idx)
+        case ScopedVal(e, _, idx) => ValidId(pos, name, idx+3)
         case null if name == "std" => Std.Std
         case _ => e
       }

@@ -13,7 +13,7 @@ object FormatTests extends TestSuite{
         def extVars: Map[String, Value] = Map()
         def loadCachedSource(p: Path): Option[String] = None
         def wd: Path = DummyPath()
-        def visitExpr(expr: Expr)(implicit scope: ValScope): Val = ???
+        def visitExpr(expr: Expr)(implicit scope: ValScope.ValScope): Val = ???
         def materialize(v: Val): Value = ???
         def equal(x: Val, y: Val): Boolean = ???
         def importer: sjsonnet.CachedImporter = ???

@@ -99,7 +99,7 @@ class ScopedExprTransform(rootFileScope: FileScope) extends ExprTransform {
   }
 
   protected[this] def nestedWith[T](n: String, e: Expr)(f: => T): T =
-    nestedNew(new Scope(scope.mappings.updated(n, new ScopedVal(e, scope, scope.size)), scope.size+1))(f)
+    nestedNew(new Scope(scope.mappings.updated(n, scope.create(e, 0)), scope.size+1))(f)
 
   protected[this] def nestedFileScope[T](fs: FileScope)(f: => T): T =
     nestedNew(emptyScope)(f)
@@ -109,7 +109,7 @@ class ScopedExprTransform(rootFileScope: FileScope) extends ExprTransform {
     else {
       val newm = a.zipWithIndex.map { case (b, idx) =>
         //println(s"Binding ${b.name} to ${scope.size + idx}")
-        (b.name, new ScopedVal(if(b.args == null) b.rhs else b, scope, scope.size + idx))
+        (b.name, scope.create(if(b.args == null) b.rhs else b, idx))
       }
       nestedNew(new Scope(scope.mappings ++ newm, scope.size + a.length))(f)
     }
@@ -118,16 +118,17 @@ class ScopedExprTransform(rootFileScope: FileScope) extends ExprTransform {
   protected[this] def nestedNames[T](a: Array[String])(f: => T): T = {
     if(a == null || a.length == 0) f
     else {
-      val newm = a.zipWithIndex.map { case (n, idx) => (n, new ScopedVal(dynamicExpr, scope, scope.size + idx)) }
+      val newm = a.zipWithIndex.map { case (n, idx) => (n, scope.create(dynamicExpr, idx)) }
       nestedNew(new Scope(scope.mappings ++ newm, scope.size + a.length))(f)
     }
   }
 }
 
 object ScopedExprTransform {
-  final case class ScopedVal(v: AnyRef, sc: Scope, idx: Int)
+  final case class ScopedVal private[ScopedExprTransform] (v: AnyRef, sc: Scope, idx: Int)
   final class Scope(val mappings: HashMap[String, ScopedVal], val size: Int) {
     def get(s: String): ScopedVal = mappings.getOrElse(s, null)
+    def create(v: AnyRef, idx: Int): ScopedVal = new ScopedVal(v, this, size+idx)
   }
   def emptyScope: Scope = new Scope(HashMap.empty, 0)
 }

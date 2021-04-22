@@ -307,12 +307,12 @@ object Val{
   }
 
   abstract class Func(val pos: Position,
-                      val defSiteValScope: ValScope,
+                      val defSiteValScope: ValScope.ValScope,
                       val params: Params) extends Val with Expr {
 
-    def evalRhs(scope: ValScope, ev: EvalScope, fs: FileScope, pos: Position): Val
+    def evalRhs(scope: ValScope.ValScope, ev: EvalScope, fs: FileScope, pos: Position): Val
 
-    def evalDefault(expr: Expr, vs: ValScope, es: EvalScope): Val = null
+    def evalDefault(expr: Expr, vs: ValScope.ValScope, es: EvalScope): Val = null
 
     def prettyName = "function"
 
@@ -323,30 +323,24 @@ object Val{
       val funDefFileScope: FileScope = pos match { case null => outerPos.fileScope case p => p.fileScope }
       //println(s"apply: argsL: ${argsL.length}, namedNames: $namedNames, paramNames: ${params.names.mkString(",")}")
       if(simple) {
-        val newScope = defSiteValScope match {
-          case null => ValScope.createSimple(argsL)
-          case s => s.extendSimple(argsL)
-        }
+        val newScope = ValScope.extendSimple(defSiteValScope, argsL)
         evalRhs(newScope, ev, funDefFileScope, outerPos)
       } else {
         val newScopeLen = math.max(params.names.length, argsL.length)
         // Initialize positional args
-        val (base, newScope) = defSiteValScope match {
-          case null => (0, ValScope.createSimple(newScopeLen))
-          case s => (s.length, s.extendBy(newScopeLen))
-        }
-        val argVals = newScope.bindings
+        val base = if(defSiteValScope == null) 3 else defSiteValScope.length
+        val newScope = ValScope.extendBy(defSiteValScope, newScopeLen)
         val posArgs = if(namedNames == null) argsL.length else argsL.length - namedNames.length
-        System.arraycopy(argsL, 0, argVals, base, posArgs)
+        System.arraycopy(argsL, 0, newScope, base, posArgs)
         if(namedNames != null) { // Add named args
           var i = 0
           var j = posArgs
           while(i < namedNames.length) {
             val idx = params.paramMap.getOrElse(namedNames(i),
               Error.fail(s"Function has no parameter ${namedNames(i)}", outerPos))
-            if(argVals(base+idx) != null)
+            if(newScope(base+idx) != null)
               Error.fail(s"binding parameter a second time: ${namedNames(i)}", outerPos)
-            argVals(base+idx) = argsL(j)
+            newScope(base+idx) = argsL(j)
             i += 1
             j += 1
           }
@@ -357,11 +351,11 @@ object Val{
           var missing: ArrayBuffer[String] = null
           var i = posArgs
           var j = base + posArgs
-          while(j < argVals.length) {
-            if(argVals(j) == null) {
+          while(j < newScope.length) {
+            if(newScope(j) == null) {
               val default = params.defaultExprs(i)
               if(default != null) {
-                argVals(j) = () => evalDefault(default, newScope, ev)
+                newScope(j) = () => evalDefault(default, newScope, ev)
               } else {
                 if(missing == null) missing = new ArrayBuffer
                 missing.+=(params.names(i))
@@ -384,7 +378,7 @@ object Val{
       if(params.names.length != 0) apply(Evaluator.emptyLazyArray, null, outerPos)
       else {
         val funDefFileScope: FileScope = pos match { case null => outerPos.fileScope case p => p.fileScope }
-        val newScope: ValScope = defSiteValScope match {
+        val newScope: ValScope.ValScope = defSiteValScope match {
           case null => ValScope.empty
           case s => s
         }
@@ -396,10 +390,7 @@ object Val{
       if(params.names.length != 1) apply(Array(argVal), null, outerPos)
       else {
         val funDefFileScope: FileScope = pos match { case null => outerPos.fileScope case p => p.fileScope }
-        val newScope: ValScope = defSiteValScope match {
-          case null => ValScope.createSimple(argVal)
-          case s => s.extendSimple(argVal)
-        }
+        val newScope: ValScope.ValScope = ValScope.extendSimple(defSiteValScope, argVal)
         evalRhs(newScope, ev, funDefFileScope, outerPos)
       }
     }
@@ -408,10 +399,7 @@ object Val{
       if(params.names.length != 2) apply(Array(argVal1, argVal2), null, outerPos)
       else {
         val funDefFileScope: FileScope = pos match { case null => outerPos.fileScope case p => p.fileScope }
-        val newScope: ValScope = defSiteValScope match {
-          case null => ValScope.createSimple(Array(argVal1, argVal2))
-          case s => s.extendSimple(argVal1, argVal2)
-        }
+        val newScope = ValScope.extendSimple(defSiteValScope, argVal1, argVal2)
         evalRhs(newScope, ev, funDefFileScope, outerPos)
       }
     }
@@ -420,10 +408,7 @@ object Val{
       if(params.names.length != 3) apply(Array(argVal1, argVal2, argVal3), null, outerPos)
       else {
         val funDefFileScope: FileScope = pos match { case null => outerPos.fileScope case p => p.fileScope }
-        val newScope: ValScope = defSiteValScope match {
-          case null => ValScope.createSimple(Array(argVal1, argVal2, argVal3))
-          case s => s.extendSimple(argVal1, argVal2, argVal3)
-        }
+        val newScope =ValScope.extendSimple(defSiteValScope, argVal1, argVal2, argVal3)
         evalRhs(newScope, ev, funDefFileScope, outerPos)
       }
     }
@@ -432,13 +417,14 @@ object Val{
   abstract class Builtin(paramNames: String*)
     extends Func(null, null, Params(paramNames.toArray, new Array[Expr](paramNames.length))) {
 
-    final def evalRhs(scope: ValScope, ev: EvalScope, fs: FileScope, pos: Position): Val = {
+    final def evalRhs(scope: ValScope.ValScope, ev: EvalScope, fs: FileScope, pos: Position): Val = {
       val args = new Array[Val](params.names.length)
       var i = 0
       var j = scope.length - args.length
       while(i < args.length) {
-        args(i) = scope.bindings(i).force
+        args(i) = scope(j).force
         i += 1
+        j += 1
       }
       evalRhs(args, ev, pos)
     }
@@ -504,7 +490,7 @@ object Val{
   */
 abstract class EvalScope extends EvalErrorScope{
   def visitExpr(expr: Expr)
-               (implicit scope: ValScope): Val
+               (implicit scope: ValScope.ValScope): Val
 
   def materialize(v: Val): ujson.Value
 

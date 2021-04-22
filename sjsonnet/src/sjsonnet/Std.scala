@@ -1077,17 +1077,17 @@ object Std {
     val indexedParamKeys = params.zipWithIndex.map{case ((k, v), i) => (k, i)}.toArray
     val p = Params(params.map(_._1).toArray, params.map(_._2).toArray)
     name -> new Val.Func(null, null, p) {
-      def evalRhs(scope: ValScope, ev: EvalScope, fs: FileScope, pos: Position): Val = {
+      def evalRhs(scope: ValScope.ValScope, ev: EvalScope, fs: FileScope, pos: Position): Val = {
         //println("--- calling builtin: "+name)
         val args = new Array[Val](indexedParamKeys.length)
         var i = 0
         while(i < args.length) {
-          args(i) = scope.bindings(i).force
+          args(i) = scope(i+3).force
           i += 1
         }
         implicitly[ReadWriter[R]].write(pos, eval(args, pos, ev))
       }
-      override def evalDefault(expr: Expr, vs: ValScope, es: EvalScope): Val = expr.asInstanceOf[Val]
+      override def evalDefault(expr: Expr, vs: ValScope.ValScope, es: EvalScope): Val = expr.asInstanceOf[Val]
     }
   }
 

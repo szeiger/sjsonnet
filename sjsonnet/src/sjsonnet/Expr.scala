@@ -24,7 +24,7 @@ object Expr{
   case class Super(pos: Position) extends Expr
   case class $(pos: Position) extends Expr
 
-  case class Id(pos: Position, name: String, nameIdx: Int) extends Expr
+  case class Id(pos: Position, name: String) extends Expr
   case class ValidId(pos: Position, name: String, nameIdx: Int) extends Expr
   case class Arr(pos: Position, value: Array[Expr]) extends Expr {
     override def toString = s"Arr($pos, ${arrStr(value)})"

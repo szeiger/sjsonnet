@@ -17,96 +17,123 @@ import java.util.Arrays
  * which do not change it (e.g. those just updating `dollar0` or `self0`) the
  * bindings array can be shared cheaply.
  */
-class ValScope(val dollar0: Val.Obj,
-               val self0: Val.Obj,
-               val super0: Val.Obj,
-               val bindings: Array[Lazy]) {
+object ValScope{
+  type ValScope = Array[Lazy]
 
-  def length: Int = bindings.length
+  private final val DOLLAR = 0
+  private final val SELF = 1
+  private final val SUPER = 2
 
-  def extend(newBindingsF: Array[(Val.Obj, Val.Obj) => Lazy] = null,
+  private[this] val emptyArr = new Array[Lazy](3)
+  def empty: ValScope = emptyArr
+
+  def createSimple(a: Array[_ <: Lazy]) = {
+    val b = new Array[Lazy](a.length+3)
+    System.arraycopy(a, 0, b, 3, a.length)
+    b
+  }
+
+  def createSimple(l1: Lazy) = {
+    val arr = new Array[Lazy](4)
+    arr(3) = l1
+    arr
+  }
+
+  def createSimple(l1: Lazy, l2: Lazy) = {
+    val arr = new Array[Lazy](5)
+    arr(3) = l1
+    arr(4) = l2
+    arr
+  }
+
+  def createSimple(l1: Lazy, l2: Lazy, l3: Lazy) = {
+    val arr = new Array[Lazy](6)
+    arr(3) = l1
+    arr(4) = l2
+    arr(5) = l3
+    arr
+  }
+
+  def createSimple(len: Int) = new Array[Lazy](len+3)
+
+  def extend(vs:ValScope,
+             newBindingsF: Array[(Val.Obj, Val.Obj) => Lazy] = null,
              newDollar: Val.Obj = null,
              newSelf: Val.Obj = null,
              newSuper: Val.Obj = null) = {
-    val dollar = if (newDollar != null) newDollar else dollar0
-    val self = if (newSelf != null) newSelf else self0
-    val sup = if (newSuper != null) newSuper else super0
-    new ValScope(
-      dollar,
-      self,
-      sup,
-      if (newBindingsF == null || newBindingsF.length == 0) bindings
-      else {
-        val b = Arrays.copyOf(bindings, bindings.length + newBindingsF.length)
-        var i = 0
-        var j = bindings.length
-        while(i < newBindingsF.length) {
-          b(j) = newBindingsF(i).apply(self, sup)
-          i += 1
-          j += 1
-        }
-        b
+    val num = if(newBindingsF != null) newBindingsF.length else 0
+    val b = Arrays.copyOf(vs, vs.length + num)
+    if(newDollar != null) b(ValScope.DOLLAR) = newDollar
+    if(newSelf != null) b(ValScope.SELF) = newSelf
+    if(newSuper != null) b(ValScope.SUPER) = newSuper
+    if(num > 0) {
+      val self = b(ValScope.SELF).asInstanceOf[Val.Obj]
+      val sup = b(ValScope.SUPER).asInstanceOf[Val.Obj]
+      var i = 0
+      var j = vs.length
+      while(i < num) {
+        b(j) = newBindingsF(i).apply(self, sup)
+        i += 1
+        j += 1
       }
-    )
+    }
+    b
   }
 
-  def extendBy(num: Int, newDollar: Val.Obj, newSelf: Val.Obj, newSuper: Val.Obj) = {
-    val dollar = if (newDollar != null) newDollar else dollar0
-    val self = if (newSelf != null) newSelf else self0
-    val sup = if (newSuper != null) newSuper else super0
-    new ValScope(dollar, self, sup, Arrays.copyOf(bindings, bindings.length + num))
+  def extendBy(vs: ValScope, num: Int, newDollar: Val.Obj, newSelf: Val.Obj, newSuper: Val.Obj) = {
+    val b = Arrays.copyOf(vs, vs.length + num)
+    if(newDollar != null) b(ValScope.DOLLAR) = newDollar
+    if(newSelf != null) b(ValScope.SELF) = newSelf
+    if(newSuper != null) b(ValScope.SUPER) = newSuper
+    b
   }
 
-  def extendSimple(newBindingsV: Array[_ <: Lazy]) = {
-    if(newBindingsV == null || newBindingsV.length == 0) this
+  def extendSimple(vs: ValScope, newBindingsV: Array[_ <: Lazy]) = {
+    if(vs == null) createSimple(newBindingsV)
+    else if(newBindingsV == null || newBindingsV.length == 0) vs
     else {
-      val b = Arrays.copyOf(bindings, bindings.length + newBindingsV.length)
-      System.arraycopy(newBindingsV, 0, b, bindings.length, newBindingsV.length)
-      new ValScope(dollar0, self0, super0, b)
+      val b = Arrays.copyOf(vs, vs.length + newBindingsV.length)
+      System.arraycopy(newBindingsV, 0, b, vs.length, newBindingsV.length)
+      b
     }
   }
 
-  def extendBy(num: Int) =
-    if(num == 0) this
-    else new ValScope(dollar0, self0, super0, Arrays.copyOf(bindings, bindings.length + num))
+  def extendBy(vs: ValScope, num: Int) =
+    if(vs == null) createSimple(num)
+    else if(num == 0) vs
+    else Arrays.copyOf(vs, vs.length + num)
 
-  def extendSimple(l1: Lazy) = {
-    val b = Arrays.copyOf(bindings, bindings.length+1)
-    b(bindings.length) = l1
-    new ValScope(dollar0, self0, super0, b)
+  def extendSimple(vs: ValScope, l1: Lazy) = {
+    if(vs == null) createSimple(l1)
+    else {
+      val b = Arrays.copyOf(vs, vs.length+1)
+      b(vs.length) = l1
+      b
+    }
   }
 
-  def extendSimple(l1: Lazy, l2: Lazy) = {
-    val b = Arrays.copyOf(bindings, bindings.length+2)
-    b(bindings.length) = l1
-    b(bindings.length+1) = l2
-    new ValScope(dollar0, self0, super0, b)
+  def extendSimple(vs: ValScope, l1: Lazy, l2: Lazy) = {
+    if(vs == null) createSimple(l1, l2)
+    else {
+      val b = Arrays.copyOf(vs, vs.length+2)
+      b(vs.length) = l1
+      b(vs.length+1) = l2
+      b
+    }
   }
 
-  def extendSimple(l1: Lazy, l2: Lazy, l3: Lazy) = {
-    val b = Arrays.copyOf(bindings, bindings.length+3)
-    b(bindings.length) = l1
-    b(bindings.length+1) = l2
-    b(bindings.length+2) = l3
-    new ValScope(dollar0, self0, super0, b)
-  }
-}
-
-object ValScope{
-  private[this] val emptyArr = new Array[Lazy](0)
-  def empty = new ValScope(null, null, null, emptyArr)
-
-  def createSimple(newBindingV: Lazy) = {
-    val arr = new Array[Lazy](1)
-    arr(0) = newBindingV
-    new ValScope(null, null, null, arr)
+  def extendSimple(vs: ValScope, l1: Lazy, l2: Lazy, l3: Lazy) = {
+    if(vs == null) createSimple(l1, l2, l3)
+    else {
+      val b = Arrays.copyOf(vs, vs.length+3)
+      b(vs.length) = l1
+      b(vs.length+1) = l2
+      b(vs.length+2) = l3
+      b
+    }
   }
 
-  def createSimple(newBindingsV: Array[_ <: Lazy]) =
-    new ValScope(null, null, null, newBindingsV.asInstanceOf[Array[Lazy]])
-
-  def createSimple(len: Int) =
-    new ValScope(null, null, null, new Array[Lazy](len))
-
-  final val INVALID_IDX = -1
+  @inline def getSuper(vs: ValScope) = vs(ValScope.SUPER).asInstanceOf[Val.Obj]
+  @inline def getSelf(vs: ValScope) = vs(ValScope.SELF).asInstanceOf[Val.Obj]
+  @inline def getDollar(vs: ValScope) = vs(ValScope.DOLLAR).asInstanceOf[Val.Obj]
 }
