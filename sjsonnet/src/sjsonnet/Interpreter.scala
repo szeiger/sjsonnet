@@ -44,7 +44,11 @@ class Interpreter(extVars: Map[String, ujson.Value],
     for{
       v <- evaluate(txt, path)
       r <- materialize(v, visitor)
-    } yield r
+    } yield {
+      println("---- expr counts:")
+      evaluator.counts.toSeq.sortBy(- _._2).foreach(println)
+      r
+    }
   }
 
   def evaluate[T](txt: String, path: Path): Either[String, Val] = {

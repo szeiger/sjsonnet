@@ -26,30 +26,60 @@ class Evaluator(resolver: CachedResolver,
   def materialize(v: Val): Value = Materializer.apply(v)
   val cachedImports = collection.mutable.HashMap.empty[Path, Val]
 
+  val counts = new mutable.HashMap[String, Int]()
+  def count(n: String): Unit = {
+    val i = counts.getOrElse(n, 0)
+    counts.put(n, i+1)
+  }
+
   def visitExpr(expr: Expr)
                (implicit scope: ValScope): Val = try {
     expr match {
       case ValidId(pos, _, nameIdx) =>
+        count("ValidId")
         val ref = scope.bindings(nameIdx)
         try ref.force catch Error.tryCatchWrap(pos)
 
-      case Select(pos, value, name) => visitSelect(pos, value, name)
+      case Select(pos, value, name) =>
+        count("Select")
+        visitSelect(pos, value, name)
 
-      case ApplyBuiltin1(pos, func, a1) => visitApplyBuiltin1(pos, func, a1)
-      case ApplyBuiltin2(pos, func, a1, a2) => visitApplyBuiltin2(pos, func, a1, a2)
-      case ApplyBuiltin(pos, func, argExprs) => visitApplyBuiltin(pos, func, argExprs)
+      case ApplyBuiltin1(pos, func, a1) =>
+        count("ApplyBuiltin1")
+        visitApplyBuiltin1(pos, func, a1)
+      case ApplyBuiltin2(pos, func, a1, a2) =>
+        count("ApplyBuiltin2")
+        visitApplyBuiltin2(pos, func, a1, a2)
+      case ApplyBuiltin(pos, func, argExprs) =>
+        count("ApplyBuiltin")
+        visitApplyBuiltin(pos, func, argExprs)
 
-      case Apply0(pos, value) => visitApply0(pos, value)
-      case Apply1(pos, value, a1) => visitApply1(pos, value, a1)
-      case Apply2(pos, value, a1, a2) => visitApply2(pos, value, a1, a2)
-      case Apply3(pos, value, a1, a2, a3) => visitApply3(pos, value, a1, a2, a3)
-      case Apply(pos, value, args, namedNames) => visitApply(pos, value, args, namedNames)
+      case Apply0(pos, value) =>
+        count("Apply0")
+        visitApply0(pos, value)
+      case Apply1(pos, value, a1) =>
+        count("Apply1")
+        visitApply1(pos, value, a1)
+      case Apply2(pos, value, a1, a2) =>
+        count("Apply2")
+        visitApply2(pos, value, a1, a2)
+      case Apply3(pos, value, a1, a2, a3) =>
+        count("Apply3")
+        visitApply3(pos, value, a1, a2, a3)
+      case Apply(pos, value, args, namedNames) =>
+        count("Apply")
+        visitApply(pos, value, args, namedNames)
 
-      case lit: Val => lit
+      case lit: Val =>
+        count("Val")
+        lit
 
-      case UnaryOp(pos, op, value) => visitUnaryOp(pos, op, value)
+      case UnaryOp(pos, op, value) =>
+        count("UnaryOp")
+        visitUnaryOp(pos, op, value)
 
       case BinaryOp(pos, lhs, Expr.BinaryOp.OP_in, ValidSuper(_, selfIdx)) =>
+        count("BinaryOp")
         val sup = scope.bindings(selfIdx+1).asInstanceOf[Val.Obj]
         if(sup == null) Val.False(pos)
         else {
@@ -58,6 +88,7 @@ class Evaluator(resolver: CachedResolver,
         }
 
       case BinaryOp(pos, lhs, Expr.BinaryOp.OP_&&, rhs) =>
+        count("BinaryOp")
         visitExpr(lhs) match {
           case Val.True(_) =>
             visitExpr(rhs) match{
@@ -71,6 +102,7 @@ class Evaluator(resolver: CachedResolver,
         }
 
       case BinaryOp(pos, lhs, Expr.BinaryOp.OP_||, rhs) =>
+        count("BinaryOp")
         visitExpr(lhs) match {
           case Val.True(_) => Val.True(pos)
           case Val.False(_) =>
@@ -83,13 +115,20 @@ class Evaluator(resolver: CachedResolver,
             Error.fail(s"binary operator || does not operate on ${unknown.prettyName}s.", pos)
         }
 
-      case BinaryOp(pos, lhs, op, rhs) => visitBinaryOp(pos, lhs, op, rhs)
+      case BinaryOp(pos, lhs, op, rhs) =>
+        count("BinaryOp")
+        visitBinaryOp(pos, lhs, op, rhs)
 
-      case Lookup(pos, value, index) => visitLookup(pos, value, index)
+      case Lookup(pos, value, index) =>
+        count("Lookup")
+        visitLookup(pos, value, index)
 
-      case Function(pos, params, body) => visitMethod(body, params, pos)
+      case Function(pos, params, body) =>
+        count("Function")
+        visitMethod(body, params, pos)
 
       case LocalExpr(pos, bindings, returned) =>
+        count("LocalExpr")
         val s =
           if(bindings == null) scope else {
             val base = scope.length
@@ -107,19 +146,28 @@ class Evaluator(resolver: CachedResolver,
           }
         visitExpr(returned)(s)
 
-      case IfElse(pos, cond, then0, else0) => visitIfElse(pos, cond, then0, else0)
+      case IfElse(pos, cond, then0, else0) =>
+        count("IfElse")
+        visitIfElse(pos, cond, then0, else0)
 
-      case ObjBody.MemberList(pos, binds, fields, asserts) => visitMemberList(pos, pos, binds, fields, asserts, null)
+      case ObjBody.MemberList(pos, binds, fields, asserts) =>
+        count("MemberList")
+        visitMemberList(pos, pos, binds, fields, asserts, null)
 
       case AssertExpr(pos, Member.AssertStmt(value, msg), returned) =>
+        count("Assert")
         visitAssert(pos, value, msg, returned)
 
       case Comp(pos, value, first, rest) =>
+        count("Comp")
         new Val.Arr(pos, visitComp(first :: rest.toList, Array(scope)).map(s => (() => visitExpr(value)(s)): Lazy))
 
-      case Arr(pos, value) => new Val.Arr(pos, value.map(v => (() => visitExpr(v)): Lazy))
+      case Arr(pos, value) =>
+        count("Arr")
+        new Val.Arr(pos, value.map(v => (() => visitExpr(v)): Lazy))
 
       case ObjExtend(superPos, value, ext) => {
+        count("ObjExtend")
         if(strict && isObjLiteral(value))
           Error.fail("Adjacent object literals not allowed in strict mode - Use '+' to concatenate objects", superPos)
         val original = visitExpr(value).cast[Val.Obj]
@@ -130,26 +178,40 @@ class Evaluator(resolver: CachedResolver,
         }
       }
 
-      case ObjBody.ObjComp(pos, preLocals, key, value, postLocals, first, rest) => visitObjComp(pos, preLocals, key, value, postLocals, first, rest, null)
+      case ObjBody.ObjComp(pos, preLocals, key, value, postLocals, first, rest) =>
+        count("ObjComp")
+        visitObjComp(pos, preLocals, key, value, postLocals, first, rest, null)
 
-      case Slice(pos, value, start, end, stride) => visitSlice(pos, value, start, end, stride)
+      case Slice(pos, value, start, end, stride) =>
+        count("Slive")
+        visitSlice(pos, value, start, end, stride)
 
-      case Import(pos, value) => visitImport(pos, value)
+      case Import(pos, value) =>
+        count("Import")
+        visitImport(pos, value)
 
-      case ImportStr(pos, value) => visitImportStr(pos, value)
+      case ImportStr(pos, value) =>
+        count("ImportStr")
+        visitImportStr(pos, value)
 
-      case Expr.Error(pos, value) => visitError(pos, value)
+      case Expr.Error(pos, value) =>
+        count("Error")
+        visitError(pos, value)
 
       case Id(pos, name) =>
+        count("Id")
         Error.fail("Unknown variable " + name, pos)
 
       case Self(pos) =>
+        count("Self")
         Error.fail("Cannot use `self` outside an object", pos)
 
       case $(pos) =>
+        count("$")
         Error.fail("Cannot use `$` outside an object", pos)
 
       case Super(pos) =>
+        count("Super")
         Error.fail("Cannot use `super` outside an object", pos)
     }
   } catch Error.tryCatch(expr.pos)
