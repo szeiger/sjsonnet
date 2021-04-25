@@ -30,7 +30,7 @@ class Evaluator(resolver: CachedResolver,
                (implicit scope: ValScope): Val = try {
     expr match {
       case ValidId(pos, _, nameIdx) =>
-        val ref = scope.bindings(nameIdx)
+        val ref = scope.bindings(scope.length-nameIdx)
         try ref.force catch Error.tryCatchWrap(pos)
 
       case Select(pos, value, name) => visitSelect(pos, value, name)
@@ -50,7 +50,7 @@ class Evaluator(resolver: CachedResolver,
       case UnaryOp(pos, op, value) => visitUnaryOp(pos, op, value)
 
       case BinaryOp(pos, lhs, Expr.BinaryOp.OP_in, ValidSuper(_, selfIdx)) =>
-        val sup = scope.bindings(selfIdx+1).asInstanceOf[Val.Obj]
+        val sup = scope.bindings(scope.length-selfIdx+1).asInstanceOf[Val.Obj]
         if(sup == null) Val.False(pos)
         else {
           val key = visitExpr(lhs).cast[Val.Str]
@@ -87,7 +87,7 @@ class Evaluator(resolver: CachedResolver,
 
       case Lookup(pos, value, index) => visitLookup(pos, value, index)
 
-      case Function(pos, params, body) => visitMethod(body, params, pos)
+      case Function(pos, params, body, closure) => visitMethod(body, params, pos, closure)
 
       case LocalExpr(pos, bindings, returned) =>
         val s =
@@ -99,7 +99,7 @@ class Evaluator(resolver: CachedResolver,
               val b = bindings(i)
               newScope.bindings(base+i) = b.args match {
                 case null => () => visitExpr(b.rhs)(newScope)
-                case argSpec => () => visitMethod(b.rhs, argSpec, b.pos)(newScope)
+                case argSpec => () => visitMethod(b.rhs, argSpec, b.pos, b.closure)(newScope)
               }
               i += 1
             }
@@ -109,7 +109,15 @@ class Evaluator(resolver: CachedResolver,
 
       case IfElse(pos, cond, then0, else0) => visitIfElse(pos, cond, then0, else0)
 
-      case ObjBody.MemberList(pos, binds, fields, asserts) => visitMemberList(pos, pos, binds, fields, asserts, null)
+      case e @ ObjBody.MemberList(pos, binds, fields, asserts, closure) =>
+        if(closure) {
+          if(e.cachedObj != null) e.cachedObj
+          else {
+            val res = visitMemberList(pos, pos, binds, fields, asserts, null)(ValScope.empty)
+            e.cachedObj = res
+            res
+          }
+        } else visitMemberList(pos, pos, binds, fields, asserts, null)
 
       case AssertExpr(pos, Member.AssertStmt(value, msg), returned) =>
         visitAssert(pos, value, msg, returned)
@@ -124,7 +132,7 @@ class Evaluator(resolver: CachedResolver,
           Error.fail("Adjacent object literals not allowed in strict mode - Use '+' to concatenate objects", superPos)
         val original = visitExpr(value).cast[Val.Obj]
         ext match {
-          case ObjBody.MemberList(pos, binds, fields, asserts) => visitMemberList(pos, superPos, binds, fields, asserts, original)
+          case ObjBody.MemberList(pos, binds, fields, asserts, closure) => visitMemberList(pos, superPos, binds, fields, asserts, original)
           case ObjBody.ObjComp(pos, preLocals, key, value, postLocals, first, rest) => visitObjComp(superPos, preLocals, key, value, postLocals, first, rest, original)
           case o: Val.Obj => o.addSuper(superPos, original)
         }
@@ -319,9 +327,9 @@ class Evaluator(resolver: CachedResolver,
   def visitLookup(pos: Position, value: Expr, index: Expr)
                  (implicit scope: ValScope): Val = value match {
     case ValidSuper(_, selfIdx) =>
-      var sup = scope.bindings(selfIdx+1).asInstanceOf[Val.Obj]
+      var sup = scope.bindings(scope.length-selfIdx+1).asInstanceOf[Val.Obj]
       val key = visitExpr(index).cast[Val.Str]
-      if(sup == null) sup = scope.bindings(selfIdx).asInstanceOf[Val.Obj]
+      if(sup == null) sup = scope.bindings(scope.length-selfIdx).asInstanceOf[Val.Obj]
       sup.value(key.value, pos)
     case _ =>
       (visitExpr(value), visitExpr(index)) match {
@@ -343,9 +351,9 @@ class Evaluator(resolver: CachedResolver,
 
   def visitSelect(pos: Position, value: Expr, name: String)(implicit scope: ValScope): Val = value match {
     case ValidSuper(_, selfIdx) =>
-      val sup = scope.bindings(selfIdx+1).asInstanceOf[Val.Obj]
+      val sup = scope.bindings(scope.length-selfIdx+1).asInstanceOf[Val.Obj]
       if(sup == null) Error.fail("Cannot use `super` outside an object", pos)
-      else sup.value(name, pos, scope.bindings(selfIdx).asInstanceOf[Val.Obj])
+      else sup.value(name, pos, scope.bindings(scope.length-selfIdx).asInstanceOf[Val.Obj])
     case _ =>
       visitExpr(value) match {
         case obj: Val.Obj => obj.value(name, pos)
@@ -499,8 +507,8 @@ class Evaluator(resolver: CachedResolver,
     }
   }
 
-  def visitMethod(rhs: Expr, params: Params, outerPos: Position)(implicit scope: ValScope) =
-    new Val.Func(outerPos, scope, params) {
+  def visitMethod(rhs: Expr, params: Params, outerPos: Position, closure: Boolean)(implicit scope: ValScope) =
+    new Val.Func(outerPos, if(closure) ValScope.empty else scope, params) {
       def evalRhs(vs: ValScope, es: EvalScope, fs: FileScope, pos: Position): Val = visitExpr(rhs)(vs)
       override def evalDefault(expr: Expr, vs: ValScope, es: EvalScope) = visitExpr(expr)(vs)
     }
@@ -514,7 +522,7 @@ class Evaluator(resolver: CachedResolver,
         case null =>
           (self: Val.Obj, sup: Val.Obj) => () => visitExpr(b.rhs)(scope(self, sup))
         case argSpec =>
-          (self: Val.Obj, sup: Val.Obj) => () => visitMethod(b.rhs, argSpec, b.pos)(scope(self, sup))
+          (self: Val.Obj, sup: Val.Obj) => () => visitMethod(b.rhs, argSpec, b.pos, b.closure)(scope(self, sup))
       }
       i += 1
     }
@@ -569,7 +577,7 @@ class Evaluator(resolver: CachedResolver,
             case null =>
               () => visitExpr(b.rhs)(newScope)
             case argSpec =>
-              () => visitMethod(b.rhs, argSpec, b.pos)(newScope)
+              () => visitMethod(b.rhs, argSpec, b.pos, b.closure)(newScope)
           }
           i += 1
           j += 1
@@ -580,7 +588,7 @@ class Evaluator(resolver: CachedResolver,
 
     val builder = new java.util.LinkedHashMap[String, Val.Obj.Member]
     fields.foreach {
-      case Member.Field(offset, fieldName, plus, null, sep, rhs) =>
+      case Member.Field(offset, fieldName, plus, null, sep, rhs, _) =>
         val k = visitFieldName(fieldName, offset)
         if(k != null) {
           val v = new Val.Obj.Member(plus, sep) {
@@ -591,13 +599,13 @@ class Evaluator(resolver: CachedResolver,
           }
           builder.put(k, v)
         }
-      case Member.Field(offset, fieldName, false, argSpec, sep, rhs) =>
+      case Member.Field(offset, fieldName, false, argSpec, sep, rhs, closure) =>
         val k = visitFieldName(fieldName, offset)
         if(k != null) {
           val v = new Val.Obj.Member(false, sep) {
             def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: EvalScope): Val = {
               if(asserts != null) assertions(self)
-              visitMethod(rhs, argSpec, offset)(makeNewScope(self, sup))
+              visitMethod(rhs, argSpec, offset, closure)(makeNewScope(self, sup))
             }
           }
           builder.put(k, v)

@@ -49,7 +49,7 @@ class OptimizerBenchmark {
 
   class Counter extends ExprTransform {
     var total, vals, exprs, arrVals, staticArrExprs, otherArrExprs, staticObjs, missedStaticObjs,
-      otherObjs, namedApplies, applies, arityApplies, builtin = 0
+      missedClosureObjs, otherObjs, namedApplies, applies, arityApplies, builtin = 0
     val applyArities = new mutable.LongMap[Int]()
     def transform(e: Expr) = {
       total += 1
@@ -63,6 +63,7 @@ class OptimizerBenchmark {
         case _: Val.Obj => staticObjs += 1
         case e: Expr.ObjBody.MemberList =>
           if(e.binds == null && e.asserts == null && e.fields.forall(_.isStatic)) missedStaticObjs += 1
+          else if(e.closure) missedClosureObjs += 1
           else otherObjs += 1
         case e: Expr.Apply =>
           if(e.namedNames == null) {
@@ -81,8 +82,8 @@ class OptimizerBenchmark {
       val arities = applyArities.toSeq.sortBy(_._1).map { case (a,b) => s"$a: $b" }.mkString(", ")
       s"Total: $total, Val: $vals, Expr: $exprs, Val.Arr: $arrVals, static Expr.Arr: $staticArrExprs, "+
         s"other Expr.Arr: $otherArrExprs, Val.Obj: $staticObjs, static MemberList: $missedStaticObjs, "+
-        s"other MemberList: $otherObjs, named Apply: $namedApplies, other Apply: $applies, "+
-        s"ApplyN: $arityApplies, ApplyBuiltin*: $builtin; Apply arities: {$arities}"
+        s"closure MemberList: $missedClosureObjs, other MemberList: $otherObjs, named Apply: $namedApplies, "+
+        s"other Apply: $applies, ApplyN: $arityApplies, ApplyBuiltin*: $builtin; Apply arities: {$arities}"
     }
   }
 }

@@ -16,17 +16,17 @@ class ScopedExprTransform extends ExprTransform {
     case LocalExpr(pos, bindings, returned) =>
       nestedBindings(bindings)(rec(e))
 
-    case MemberList(pos, binds, fields, asserts) =>
+    case MemberList(pos, binds, fields, asserts, closure) =>
       val fields2 = transformGenericArr(fields)(transformFieldNameOnly)
       nestedBindings(dynamicExpr, dynamicExpr, binds) {
         val fields3 = transformGenericArr(fields2)(transformFieldNoName)
         val binds2 = transformBinds(binds)
         val asserts2 = transformAsserts(asserts)
         if((binds2 eq binds) && (fields3 eq fields) && (asserts2 eq asserts)) e
-        else ObjBody.MemberList(pos, binds2, fields3, asserts2)
+        else ObjBody.MemberList(pos, binds2, fields3, asserts2, closure)
       }
 
-    case Function(pos, params, body) =>
+    case Function(pos, params, body, keepSymbols) =>
       nestedNames(params.names)(rec(e))
 
     case ObjComp(pos, preLocals, key, value, postLocals, first, rest) =>
@@ -63,7 +63,7 @@ class ScopedExprTransform extends ExprTransform {
     if(x2 eq x) f else f.copy(fieldName = x2)
   }
 
-  protected[this] def transformFieldNoName(f: Member.Field): Member.Field = {
+  def transformFieldNoName(f: Member.Field): Member.Field = {
     def g = {
       val y = f.args
       val z = f.rhs

@@ -52,7 +52,8 @@ object Expr{
                      plus: Boolean,
                      args: Params,
                      sep: Visibility,
-                     rhs: Expr) extends Member {
+                     rhs: Expr,
+                     closure: Boolean) extends Member {
       def isStatic = fieldName.isInstanceOf[FieldName.Fixed] && !plus && args == null && sep == Visibility.Normal && rhs.isInstanceOf[Val.Literal]
     }
     case class AssertStmt(value: Expr, msg: Expr) extends Member
@@ -103,7 +104,7 @@ object Expr{
     override def toString = s"LocalExpr($pos, ${arrStr(bindings)}, $returned)"
   }
 
-  case class Bind(pos: Position, name: String, args: Params, rhs: Expr) extends Member
+  case class Bind(pos: Position, name: String, args: Params, rhs: Expr, closure: Boolean) extends Member
   case class Import(pos: Position, value: String) extends Expr
   case class ImportStr(pos: Position, value: String) extends Expr
   case class Error(pos: Position, value: Expr) extends Expr
@@ -123,7 +124,7 @@ object Expr{
                    start: Option[Expr],
                    end: Option[Expr],
                    stride: Option[Expr]) extends Expr
-  case class Function(pos: Position, params: Params, body: Expr) extends Expr
+  case class Function(pos: Position, params: Params, body: Expr, closure: Boolean) extends Expr
   case class IfElse(pos: Position, cond: Expr, then: Expr, `else`: Expr) extends Expr
 
   sealed trait CompSpec extends Expr
@@ -135,7 +136,9 @@ object Expr{
 
   trait ObjBody extends Expr
   object ObjBody{
-    case class MemberList(pos: Position, binds: Array[Bind], fields: Array[Member.Field], asserts: Array[Member.AssertStmt]) extends ObjBody
+    case class MemberList(pos: Position, binds: Array[Bind], fields: Array[Member.Field], asserts: Array[Member.AssertStmt], closure: Boolean) extends ObjBody {
+      var cachedObj: Val.Obj = null
+    }
     case class ObjComp(pos: Position,
                        preLocals: Array[Bind],
                        key: Expr,

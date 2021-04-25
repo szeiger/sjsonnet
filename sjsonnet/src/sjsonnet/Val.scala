@@ -299,7 +299,7 @@ object Val{
     val cache = mutable.HashMap.empty[Any, Val]
     val allKeys = new util.LinkedHashMap[String, java.lang.Boolean]
     fields.foreach {
-      case Expr.Member.Field(_, Expr.FieldName.Fixed(k), _, _, _, rhs: Val.Literal) =>
+      case Expr.Member.Field(_, Expr.FieldName.Fixed(k), _, _, _, rhs: Val.Literal, _) =>
         cache.put(k, rhs)
         allKeys.put(k, false)
     }
@@ -323,13 +323,14 @@ object Val{
       val funDefFileScope: FileScope = pos match { case null => outerPos.fileScope case p => p.fileScope }
       //println(s"apply: argsL: ${argsL.length}, namedNames: $namedNames, paramNames: ${params.names.mkString(",")}")
       if(simple) {
-        val newScope = defSiteValScope.extendSimple(argsL)
+        val newScope = defSiteValScope.extendBy(argsL.length)
+        System.arraycopy(argsL, 0, newScope.bindings, newScope.length-argsL.length, argsL.length)
         evalRhs(newScope, ev, funDefFileScope, outerPos)
       } else {
         val newScopeLen = math.max(params.names.length, argsL.length)
         // Initialize positional args
-        val base = defSiteValScope.length
         val newScope = defSiteValScope.extendBy(newScopeLen)
+        val base = newScope.length - newScopeLen
         val argVals = newScope.bindings
         val posArgs = if(namedNames == null) argsL.length else argsL.length - namedNames.length
         System.arraycopy(argsL, 0, argVals, base, posArgs)
