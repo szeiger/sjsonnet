@@ -12,13 +12,13 @@ import upickle.core.Visitor
 abstract class Materializer {
   def storePos(pos: Position): Unit
 
-  def apply(v: Val)(implicit evaluator: EvalScope): ujson.Value = apply0(v, ujson.Value)
-  def stringify(v: Val)(implicit evaluator: EvalScope): String = {
+  def apply(v: Val)(implicit evaluator: Evaluator): ujson.Value = apply0(v, ujson.Value)
+  def stringify(v: Val)(implicit evaluator: Evaluator): String = {
     apply0(v, new sjsonnet.Renderer()).toString
   }
 
   def apply0[T](v: Val, visitor: Visitor[T, T])
-               (implicit evaluator: EvalScope): T = try {
+               (implicit evaluator: Evaluator): T = try {
     v match {
       case Val.True(pos) => storePos(pos); visitor.visitTrue(-1)
       case Val.False(pos) => storePos(pos); visitor.visitFalse(-1)
@@ -87,14 +87,14 @@ abstract class Materializer {
       val builder = new java.util.LinkedHashMap[String, Val.Obj.Member]
       for(x <- xs) {
         val v = new Val.Obj.Member(false, Visibility.Normal) {
-          def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: EvalScope): Val = reverse(pos, x._2)
+          def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: Evaluator): Val = reverse(pos, x._2)
         }
         builder.put(x._1, v)
       }
       new Val.Obj(pos, builder, false, null, null)
   }
 
-  def toExpr(v: ujson.Value)(implicit ev: EvalScope): Expr = v match{
+  def toExpr(v: ujson.Value)(implicit ev: Evaluator): Expr = v match{
     case ujson.True => Val.True(ev.emptyMaterializeFileScopePos)
     case ujson.False => Val.False(ev.emptyMaterializeFileScopePos)
     case ujson.Null => Val.Null(ev.emptyMaterializeFileScopePos)

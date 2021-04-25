@@ -18,10 +18,13 @@ import scala.collection.mutable
 class Evaluator(resolver: CachedResolver,
                 val extVars: Map[String, ujson.Value],
                 val wd: Path,
-                override val preserveOrder: Boolean = false,
-                strict: Boolean) extends EvalScope{
-  implicit def evalScope: EvalScope = this
+                val preserveOrder: Boolean = false,
+                strict: Boolean) extends EvalErrorScope {
+  implicit def evalScope: Evaluator = this
   def importer: CachedImporter = resolver
+
+  val emptyMaterializeFileScope = new FileScope(wd / "(materialize)")
+  val emptyMaterializeFileScopePos = new Position(emptyMaterializeFileScope, -1)
 
   def materialize(v: Val): Value = Materializer.apply(v)
   val cachedImports = collection.mutable.HashMap.empty[Path, Val]
@@ -501,8 +504,8 @@ class Evaluator(resolver: CachedResolver,
 
   def visitMethod(rhs: Expr, params: Params, outerPos: Position)(implicit scope: ValScope) =
     new Val.Func(outerPos, scope, params) {
-      def evalRhs(vs: ValScope, es: EvalScope, fs: FileScope, pos: Position): Val = visitExpr(rhs)(vs)
-      override def evalDefault(expr: Expr, vs: ValScope, es: EvalScope) = visitExpr(expr)(vs)
+      def evalRhs(vs: ValScope, es: Evaluator, fs: FileScope, pos: Position): Val = es.visitExpr(rhs)(vs)
+      override def evalDefault(expr: Expr, vs: ValScope, es: Evaluator) = es.visitExpr(expr)(vs)
     }
 
   def visitBindings(bindings: Array[Bind], scope: (Val.Obj, Val.Obj) => ValScope): Array[(Val.Obj, Val.Obj) => Lazy] = {
@@ -584,9 +587,9 @@ class Evaluator(resolver: CachedResolver,
         val k = visitFieldName(fieldName, offset)
         if(k != null) {
           val v = new Val.Obj.Member(plus, sep) {
-            def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: EvalScope): Val = {
+            def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: Evaluator): Val = {
               if(asserts != null) assertions(self)
-              visitExpr(rhs)(makeNewScope(self, sup))
+              ev.visitExpr(rhs)(makeNewScope(self, sup))
             }
           }
           builder.put(k, v)
@@ -595,9 +598,9 @@ class Evaluator(resolver: CachedResolver,
         val k = visitFieldName(fieldName, offset)
         if(k != null) {
           val v = new Val.Obj.Member(false, sep) {
-            def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: EvalScope): Val = {
+            def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: Evaluator): Val = {
               if(asserts != null) assertions(self)
-              visitMethod(rhs, argSpec, offset)(makeNewScope(self, sup))
+              ev.visitMethod(rhs, argSpec, offset)(makeNewScope(self, sup))
             }
           }
           builder.put(k, v)
@@ -621,8 +624,8 @@ class Evaluator(resolver: CachedResolver,
         visitExpr(key)(s) match {
           case Val.Str(_, k) =>
             builder.put(k, new Val.Obj.Member(false, Visibility.Normal) {
-              def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: EvalScope): Val =
-                visitExpr(value)(
+              def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: Evaluator): Val =
+                ev.visitExpr(value)(
                   s.extend(newBindings, self, null)
                 )
             })

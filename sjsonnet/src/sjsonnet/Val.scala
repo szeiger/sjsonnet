@@ -130,12 +130,12 @@ object Val{
   object Obj{
 
     abstract class Member(val add: Boolean, val visibility: Visibility, val cached: Boolean = true) {
-      def invoke(self: Obj, sup: Obj, fs: FileScope, ev: EvalScope): Val
+      def invoke(self: Obj, sup: Obj, fs: FileScope, ev: Evaluator): Val
     }
 
     class ConstMember(add: Boolean, visibility: Visibility, v: Val, cached: Boolean = true)
       extends Member(add, visibility, cached) {
-      def invoke(self: Obj, sup: Obj, fs: FileScope, ev: EvalScope): Val = v
+      def invoke(self: Obj, sup: Obj, fs: FileScope, ev: Evaluator): Val = v
     }
 
     def mk(pos: Position, members: (String, Obj.Member)*): Obj = {
@@ -218,7 +218,7 @@ object Val{
     def value(k: String,
               pos: Position,
               self: Obj = this)
-             (implicit evaluator: EvalScope): Val = {
+             (implicit evaluator: Evaluator): Val = {
       if(static) {
         valueCache.getOrElse(k, null) match {
           case null => Error.fail("Field does not exist: " + k, pos)
@@ -235,7 +235,7 @@ object Val{
       }
     }
 
-    private def renderString(v: Val)(implicit evaluator: EvalScope): String = {
+    private def renderString(v: Val)(implicit evaluator: Evaluator): String = {
       try evaluator.materialize(v).transform(new Renderer()).toString
       catch Error.tryCatchWrap(pos)
     }
@@ -243,7 +243,7 @@ object Val{
     def mergeMember(l: Val,
                     r: Val,
                     pos: Position)
-                   (implicit evaluator: EvalScope) = {
+                   (implicit evaluator: Evaluator) = {
       val lStr = l.isInstanceOf[Val.Str]
       val rStr = r.isInstanceOf[Val.Str]
       if(lStr || rStr) {
@@ -270,7 +270,7 @@ object Val{
                  pos: Position,
                  addTo: mutable.HashMap[Any, Val] = null,
                  addKey: Any = null)
-                (implicit evaluator: EvalScope): Val = {
+                (implicit evaluator: Evaluator): Val = {
       if(static) {
         val v = valueCache.getOrElse(k, null)
         if(addTo != null && v != null) addTo(addKey) = v
@@ -310,15 +310,15 @@ object Val{
                       val defSiteValScope: ValScope,
                       val params: Params) extends Val with Expr {
 
-    def evalRhs(scope: ValScope, ev: EvalScope, fs: FileScope, pos: Position): Val
+    def evalRhs(scope: ValScope, ev: Evaluator, fs: FileScope, pos: Position): Val
 
-    def evalDefault(expr: Expr, vs: ValScope, es: EvalScope): Val = null
+    def evalDefault(expr: Expr, vs: ValScope, es: Evaluator): Val = null
 
     def prettyName = "function"
 
     override def asFunc: Func = this
 
-    def apply(argsL: Array[_ <: Lazy], namedNames: Array[String], outerPos: Position)(implicit ev: EvalScope): Val = {
+    def apply(argsL: Array[_ <: Lazy], namedNames: Array[String], outerPos: Position)(implicit ev: Evaluator): Val = {
       val simple = namedNames == null && params.names.length == argsL.length
       val funDefFileScope: FileScope = pos match { case null => outerPos.fileScope case p => p.fileScope }
       //println(s"apply: argsL: ${argsL.length}, namedNames: $namedNames, paramNames: ${params.names.mkString(",")}")
@@ -375,7 +375,7 @@ object Val{
       }
     }
 
-    def apply0(outerPos: Position)(implicit ev: EvalScope): Val = {
+    def apply0(outerPos: Position)(implicit ev: Evaluator): Val = {
       if(params.names.length != 0) apply(Evaluator.emptyLazyArray, null, outerPos)
       else {
         val funDefFileScope: FileScope = pos match { case null => outerPos.fileScope case p => p.fileScope }
@@ -383,7 +383,7 @@ object Val{
       }
     }
 
-    def apply1(argVal: Lazy, outerPos: Position)(implicit ev: EvalScope): Val = {
+    def apply1(argVal: Lazy, outerPos: Position)(implicit ev: Evaluator): Val = {
       if(params.names.length != 1) apply(Array(argVal), null, outerPos)
       else {
         val funDefFileScope: FileScope = pos match { case null => outerPos.fileScope case p => p.fileScope }
@@ -392,7 +392,7 @@ object Val{
       }
     }
 
-    def apply2(argVal1: Lazy, argVal2: Lazy, outerPos: Position)(implicit ev: EvalScope): Val = {
+    def apply2(argVal1: Lazy, argVal2: Lazy, outerPos: Position)(implicit ev: Evaluator): Val = {
       if(params.names.length != 2) apply(Array(argVal1, argVal2), null, outerPos)
       else {
         val funDefFileScope: FileScope = pos match { case null => outerPos.fileScope case p => p.fileScope }
@@ -401,7 +401,7 @@ object Val{
       }
     }
 
-    def apply3(argVal1: Lazy, argVal2: Lazy, argVal3: Lazy, outerPos: Position)(implicit ev: EvalScope): Val = {
+    def apply3(argVal1: Lazy, argVal2: Lazy, argVal3: Lazy, outerPos: Position)(implicit ev: Evaluator): Val = {
       if(params.names.length != 3) apply(Array(argVal1, argVal2, argVal3), null, outerPos)
       else {
         val funDefFileScope: FileScope = pos match { case null => outerPos.fileScope case p => p.fileScope }
@@ -414,7 +414,7 @@ object Val{
   abstract class Builtin(paramNames: String*)
     extends Func(null, ValScope.empty, Params(paramNames.toArray, new Array[Expr](paramNames.length))) {
 
-    final def evalRhs(scope: ValScope, ev: EvalScope, fs: FileScope, pos: Position): Val = {
+    final def evalRhs(scope: ValScope, ev: Evaluator, fs: FileScope, pos: Position): Val = {
       val args = new Array[Val](params.names.length)
       var i = 0
       var j = scope.length - args.length
@@ -425,75 +425,57 @@ object Val{
       evalRhs(args, ev, pos)
     }
 
-    def evalRhs(args: Array[Val], ev: EvalScope, pos: Position): Val
+    def evalRhs(args: Array[Val], ev: Evaluator, pos: Position): Val
 
-    override def apply1(argVal: Lazy, outerPos: Position)(implicit ev: EvalScope): Val =
+    override def apply1(argVal: Lazy, outerPos: Position)(implicit ev: Evaluator): Val =
       if(params.names.length != 1) apply(Array(argVal), null, outerPos)
       else evalRhs(Array(argVal.force), ev, outerPos)
 
-    override def apply2(argVal1: Lazy, argVal2: Lazy, outerPos: Position)(implicit ev: EvalScope): Val =
+    override def apply2(argVal1: Lazy, argVal2: Lazy, outerPos: Position)(implicit ev: Evaluator): Val =
       if(params.names.length != 2) apply(Array(argVal1, argVal2), null, outerPos)
       else evalRhs(Array(argVal1.force, argVal2.force), ev, outerPos)
   }
 
   abstract class Builtin1(pn1: String) extends Builtin(pn1) {
-    final def evalRhs(args: Array[Val], ev: EvalScope, pos: Position): Val =
+    final def evalRhs(args: Array[Val], ev: Evaluator, pos: Position): Val =
       evalRhs(args(0), ev, pos)
 
-    def evalRhs(arg1: Val, ev: EvalScope, pos: Position): Val
+    def evalRhs(arg1: Val, ev: Evaluator, pos: Position): Val
 
-    override def apply(argVals: Array[_ <: Lazy], namedNames: Array[String], outerPos: Position)(implicit ev: EvalScope): Val =
+    override def apply(argVals: Array[_ <: Lazy], namedNames: Array[String], outerPos: Position)(implicit ev: Evaluator): Val =
       if(namedNames == null && argVals.length == 1) evalRhs(argVals(0).force, ev, outerPos)
       else super.apply(argVals, namedNames, outerPos)
 
-    override def apply1(argVal: Lazy, outerPos: Position)(implicit ev: EvalScope): Val =
+    override def apply1(argVal: Lazy, outerPos: Position)(implicit ev: Evaluator): Val =
       if(params.names.length == 1) evalRhs(argVal.force, ev, outerPos)
       else super.apply(Array(argVal), null, outerPos)
   }
 
   abstract class Builtin2(pn1: String, pn2: String) extends Builtin(pn1, pn2) {
-    final def evalRhs(args: Array[Val], ev: EvalScope, pos: Position): Val =
+    final def evalRhs(args: Array[Val], ev: Evaluator, pos: Position): Val =
       evalRhs(args(0), args(1), ev, pos)
 
-    def evalRhs(arg1: Val, arg2: Val, ev: EvalScope, pos: Position): Val
+    def evalRhs(arg1: Val, arg2: Val, ev: Evaluator, pos: Position): Val
 
-    override def apply(argVals: Array[_ <: Lazy], namedNames: Array[String], outerPos: Position)(implicit ev: EvalScope): Val =
+    override def apply(argVals: Array[_ <: Lazy], namedNames: Array[String], outerPos: Position)(implicit ev: Evaluator): Val =
       if(namedNames == null && argVals.length == 2)
         evalRhs(argVals(0).force, argVals(1).force, ev, outerPos)
       else super.apply(argVals, namedNames, outerPos)
 
-    override def apply2(argVal1: Lazy, argVal2: Lazy, outerPos: Position)(implicit ev: EvalScope): Val =
+    override def apply2(argVal1: Lazy, argVal2: Lazy, outerPos: Position)(implicit ev: Evaluator): Val =
       if(params.names.length == 2) evalRhs(argVal1.force, argVal2.force, ev, outerPos)
       else super.apply(Array(argVal1, argVal2), null, outerPos)
   }
 
   abstract class Builtin3(pn1: String, pn2: String, pn3: String) extends Builtin(pn1, pn2, pn3) {
-    final def evalRhs(args: Array[Val], ev: EvalScope, pos: Position): Val =
+    final def evalRhs(args: Array[Val], ev: Evaluator, pos: Position): Val =
       evalRhs(args(0), args(1), args(2), ev, pos)
 
-    def evalRhs(arg1: Val, arg2: Val, arg3: Val, ev: EvalScope, pos: Position): Val
+    def evalRhs(arg1: Val, arg2: Val, arg3: Val, ev: Evaluator, pos: Position): Val
 
-    override def apply(argVals: Array[_ <: Lazy], namedNames: Array[String], outerPos: Position)(implicit ev: EvalScope): Val =
+    override def apply(argVals: Array[_ <: Lazy], namedNames: Array[String], outerPos: Position)(implicit ev: Evaluator): Val =
       if(namedNames == null && argVals.length == 3)
         evalRhs(argVals(0).force, argVals(1).force, argVals(2).force, ev, outerPos)
       else super.apply(argVals, namedNames, outerPos)
   }
-}
-
-/**
-  * [[EvalScope]] models the per-evaluator context that is propagated
-  * throughout the Jsonnet evaluation.
-  */
-abstract class EvalScope extends EvalErrorScope{
-  def visitExpr(expr: Expr)
-               (implicit scope: ValScope): Val
-
-  def materialize(v: Val): ujson.Value
-
-  def equal(x: Val, y: Val): Boolean
-
-  val emptyMaterializeFileScope = new FileScope(wd / "(materialize)")
-  val emptyMaterializeFileScopePos = new Position(emptyMaterializeFileScope, -1)
-
-  val preserveOrder: Boolean = false
 }
