@@ -8,7 +8,10 @@ import scala.util.control.Breaks
 class StaticOptimizer extends ScopedExprTransform {
   val closureId = new ClosureIdentifier
 
-  def optimize(e: Expr): Expr = transform(e)
+  def optimize(e: Expr): Expr = {
+    val e2 = transform(e)
+    (new ClosureInliner).transform(e2)
+  }
 
   override def transform(e: Expr): Expr = e match {
     case Apply(pos, Select(_, Id(_, "std"), name), args, null) if(scope.get("std") == null) =>
@@ -68,14 +71,14 @@ class StaticOptimizer extends ScopedExprTransform {
         case other => other
       }
 
-    case m: ObjBody.MemberList =>
-      super.transform(m) match {
-        case m @ ObjBody.MemberList(pos, binds, fields, asserts, _) =>
-          if(binds == null && asserts == null && fields.forall(_.isStatic)) Val.staticObject(pos, fields)
-          else if(closureId.isClosed(scope)(_.transform(m))) m.copy(closure = true)
-          else m
-        case other => other
-      }
+//    case m: ObjBody.MemberList =>
+//      super.transform(m) match {
+//        case m @ ObjBody.MemberList(pos, binds, fields, asserts, _) =>
+//          if(binds == null && asserts == null && fields.forall(_.isStatic)) Val.staticObject(pos, fields)
+//          else if(closureId.isClosed(scope)(_.transform(m))) m.copy(closure = true)
+//          else m
+//        case other => other
+//      }
 
     case _: Function =>
       super.transform(e) match {
@@ -108,10 +111,16 @@ class StaticOptimizer extends ScopedExprTransform {
 
   override def transformFieldNoName(f: Expr.Member.Field): Expr.Member.Field = {
     val f2 = super.transformFieldNoName(f)
-    if(closureId.isClosed(scope)(_.transformFieldNoName(f2)))
+    if(f2.args != null && closureId.isClosed(scope)(_.transformFieldNoName(f2)))
       f2.copy(closure = true)
     else f2
   }
+
+  def evaluateClosure(rhs: Expr, params: Params, outerPos: Position) =
+    new Val.Func(outerPos, ValScope.empty, params) {
+      def evalRhs(vs: ValScope, es: Evaluator, fs: FileScope, pos: Position): Val = es.visitExpr(rhs)(vs)
+      override def evalDefault(expr: Expr, vs: ValScope, es: Evaluator) = es.visitExpr(expr)(vs)
+    }
 
   private def transformApply(a: Apply): Expr = {
     val rargs = transformArr(a.args)
@@ -183,26 +192,6 @@ class StaticOptimizer extends ScopedExprTransform {
   }
 }
 
-/*class ClosureIdentifier extends ScopedExprTransform {
-  private var minIdx = Int.MaxValue
-  def findMinIdx[T](sc: ScopedExprTransform.Scope)(f: this.type => T): Int = {
-    minIdx = Int.MaxValue
-    nestedNew(sc)(f(this))
-    minIdx
-  }
-  override def transform(e: Expr): Expr = e match {
-    case Expr.ValidId(_, _, deBrujin) =>
-      val idx = scope.size - deBrujin
-      if(idx < minIdx) minIdx = idx
-      e
-    case Expr.ValidSuper(_, deBrujin) =>
-      val idx = scope.size - deBrujin
-      if(idx < minIdx) minIdx = idx
-      e
-    case e => super.transform(e)
-  }
-}*/
-
 class ClosureIdentifier extends ScopedExprTransform {
   private var minIdx = Int.MaxValue
   private var target: Int = 0
@@ -223,26 +212,32 @@ class ClosureIdentifier extends ScopedExprTransform {
       if(idx < minIdx) minIdx = idx
       if(minIdx < target) Breaks.break()
       e
-    case (_: Expr.$ | _: Expr.Self | _: Expr.Super) =>
+    case (_: Expr.$ | _: Expr.Self | _: Expr.Super | _: Id) =>
       minIdx = -1
       Breaks.break()
     case e => super.transform(e)
   }
 }
 
-/*class ClosureInliner extends ScopedExprTransform {
-  private val cache = new java.util.IdentityHashMap[AnyRef, Expr.Function]()
+class ClosureInliner extends ScopedExprTransform {
+  private val cache = new java.util.IdentityHashMap[AnyRef, Val.Func]()
 
   override def transform(e: Expr): Expr = super.transform(e) match {
-    case e2 @ Expr.ValidId(_, _, name) =>
+    case e2 @ Expr.ValidId(_, name, _) =>
       scope.get(name).v match {
         case c: Expr.Function if c.closure =>
-          c
+          //println(s"---- Inlining $c")
+          var cached = cache.get(c)
+          if(cached == null) {
+            cached = evaluateClosure(c.body, c.params, c.pos)
+            cache.put(c, cached)
+          }
+          cached
         case b @ Expr.Bind(pos, name, args, rhs, true) =>
           //println(s"---- Inlining $b")
           var cached = cache.get(b)
           if(cached == null) {
-            cached = Expr.Function(pos, args, rhs, true)
+            cached = evaluateClosure(rhs, args, pos)
             cache.put(b, cached)
           }
           cached
@@ -253,5 +248,10 @@ class ClosureIdentifier extends ScopedExprTransform {
       v
     case e2 => e2
   }
+
+  def evaluateClosure(rhs: Expr, params: Params, outerPos: Position) =
+    new Val.Func(outerPos, ValScope.empty, params) {
+      def evalRhs(vs: ValScope, es: Evaluator, fs: FileScope, pos: Position): Val = es.visitExpr(rhs)(vs)
+      override def evalDefault(expr: Expr, vs: ValScope, es: Evaluator) = es.visitExpr(expr)(vs)
+    }
 }
-*/

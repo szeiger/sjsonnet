@@ -18,10 +18,13 @@ import scala.collection.mutable
 class Evaluator(resolver: CachedResolver,
                 val extVars: Map[String, ujson.Value],
                 val wd: Path,
-                override val preserveOrder: Boolean = false,
-                strict: Boolean) extends EvalScope{
-  implicit def evalScope: EvalScope = this
+                val preserveOrder: Boolean = false,
+                strict: Boolean) extends EvalErrorScope {
+  implicit def evalScope: Evaluator = this
   def importer: CachedImporter = resolver
+
+  val emptyMaterializeFileScope = new FileScope(wd / "(materialize)")
+  val emptyMaterializeFileScopePos = new Position(emptyMaterializeFileScope, -1)
 
   def materialize(v: Val): Value = Materializer.apply(v)
   val cachedImports = collection.mutable.HashMap.empty[Path, Val]
@@ -110,14 +113,14 @@ class Evaluator(resolver: CachedResolver,
       case IfElse(pos, cond, then0, else0) => visitIfElse(pos, cond, then0, else0)
 
       case e @ ObjBody.MemberList(pos, binds, fields, asserts, closure) =>
-        if(closure) {
+        /*if(closure) {
           if(e.cachedObj != null) e.cachedObj
           else {
-            val res = visitMemberList(pos, pos, binds, fields, asserts, null)(ValScope.empty)
+            val res = visitMemberList(pos, binds, fields, asserts, null)(ValScope.empty)
             e.cachedObj = res
             res
           }
-        } else visitMemberList(pos, pos, binds, fields, asserts, null)
+        } else*/ visitMemberList(pos, binds, fields, asserts, null)
 
       case AssertExpr(pos, Member.AssertStmt(value, msg), returned) =>
         visitAssert(pos, value, msg, returned)
@@ -132,7 +135,7 @@ class Evaluator(resolver: CachedResolver,
           Error.fail("Adjacent object literals not allowed in strict mode - Use '+' to concatenate objects", superPos)
         val original = visitExpr(value).cast[Val.Obj]
         ext match {
-          case ObjBody.MemberList(pos, binds, fields, asserts, closure) => visitMemberList(pos, superPos, binds, fields, asserts, original)
+          case ObjBody.MemberList(pos, binds, fields, asserts, closure) => visitMemberList(superPos, binds, fields, asserts, original)
           case ObjBody.ObjComp(pos, preLocals, key, value, postLocals, first, rest) => visitObjComp(superPos, preLocals, key, value, postLocals, first, rest, original)
           case o: Val.Obj => o.addSuper(superPos, original)
         }
@@ -509,8 +512,8 @@ class Evaluator(resolver: CachedResolver,
 
   def visitMethod(rhs: Expr, params: Params, outerPos: Position, closure: Boolean)(implicit scope: ValScope) =
     new Val.Func(outerPos, if(closure) ValScope.empty else scope, params) {
-      def evalRhs(vs: ValScope, es: EvalScope, fs: FileScope, pos: Position): Val = visitExpr(rhs)(vs)
-      override def evalDefault(expr: Expr, vs: ValScope, es: EvalScope) = visitExpr(expr)(vs)
+      def evalRhs(vs: ValScope, es: Evaluator, fs: FileScope, pos: Position): Val = visitExpr(rhs)(vs)
+      override def evalDefault(expr: Expr, vs: ValScope, es: Evaluator) = visitExpr(expr)(vs)
     }
 
   def visitBindings(bindings: Array[Bind], scope: (Val.Obj, Val.Obj) => ValScope): Array[(Val.Obj, Val.Obj) => Lazy] = {
@@ -529,7 +532,7 @@ class Evaluator(resolver: CachedResolver,
     arrF
   }
 
-  def visitMemberList(pos: Position, objPos: Position, binds: Array[Bind], fields: Array[Expr.Member.Field], asserts: Array[Expr.Member.AssertStmt], sup: Val.Obj)(implicit scope: ValScope): Val.Obj = {
+  def visitMemberList(objPos: Position, binds: Array[Bind], fields: Array[Expr.Member.Field], asserts: Array[Expr.Member.AssertStmt], sup: Val.Obj)(implicit scope: ValScope): Val.Obj = {
     var cachedSimpleScope: ValScope = null.asInstanceOf[ValScope]
     var cachedObj: Val.Obj = null
     var asserting: Boolean = false
@@ -592,7 +595,7 @@ class Evaluator(resolver: CachedResolver,
         val k = visitFieldName(fieldName, offset)
         if(k != null) {
           val v = new Val.Obj.Member(plus, sep) {
-            def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: EvalScope): Val = {
+            def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: Evaluator): Val = {
               if(asserts != null) assertions(self)
               visitExpr(rhs)(makeNewScope(self, sup))
             }
@@ -603,7 +606,7 @@ class Evaluator(resolver: CachedResolver,
         val k = visitFieldName(fieldName, offset)
         if(k != null) {
           val v = new Val.Obj.Member(false, sep) {
-            def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: EvalScope): Val = {
+            def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: Evaluator): Val = {
               if(asserts != null) assertions(self)
               visitMethod(rhs, argSpec, offset, closure)(makeNewScope(self, sup))
             }
@@ -629,7 +632,7 @@ class Evaluator(resolver: CachedResolver,
         visitExpr(key)(s) match {
           case Val.Str(_, k) =>
             builder.put(k, new Val.Obj.Member(false, Visibility.Normal) {
-              def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: EvalScope): Val =
+              def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: Evaluator): Val =
                 visitExpr(value)(
                   s.extend(newBindings, self, null)
                 )
