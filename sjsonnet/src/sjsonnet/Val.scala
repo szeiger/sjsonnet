@@ -15,8 +15,9 @@ import scala.reflect.ClassTag
  * evaluated dictionary values, array contents, or function parameters
  * are all wrapped in [[Lazy]] and only truly evaluated on-demand
  */
-abstract class Lazy {
+abstract class Lazy extends Expr {
   protected[this] var cached: Val = null
+  def pos: Position = ???
   def compute(): Val
   final def force: Val = {
     if(cached == null)  cached = compute()
@@ -65,33 +66,33 @@ object PrettyNamed{
 }
 object Val{
 
-  abstract class Literal extends Val with Expr
+  abstract class Literal extends Val
   abstract class Bool extends Literal {
     override def asBoolean: Boolean = this.isInstanceOf[True]
   }
 
   def bool(pos: Position, b: Boolean) = if (b) True(pos) else False(pos)
 
-  case class True(pos: Position) extends Bool {
+  case class True(override val pos: Position) extends Bool {
     def prettyName = "boolean"
   }
-  case class False(pos: Position) extends Bool {
+  case class False(override val pos: Position) extends Bool {
     def prettyName = "boolean"
   }
-  case class Null(pos: Position) extends Literal {
+  case class Null(override val pos: Position) extends Literal {
     def prettyName = "null"
   }
-  case class Str(pos: Position, value: String) extends Literal {
+  case class Str(override val pos: Position, value: String) extends Literal {
     def prettyName = "string"
     override def asString: String = value
   }
-  case class Num(pos: Position, value: Double) extends Literal {
+  case class Num(override val pos: Position, value: Double) extends Literal {
     def prettyName = "number"
     override def asInt: Int = value.toInt
     override def asDouble: Double = value
   }
 
-  class Arr(val pos: Position, private val value: Array[_ <: Lazy]) extends Literal {
+  class Arr(override val pos: Position, private val value: Array[_ <: Lazy]) extends Literal {
     def prettyName = "array"
     override def asArr: Arr = this
     def length: Int = value.length
@@ -145,7 +146,7 @@ object Val{
     }
   }
 
-  final class Obj(val pos: Position,
+  final class Obj(override val pos: Position,
                   private[this] var value0: util.LinkedHashMap[String, Obj.Member],
                   static: Boolean,
                   triggerAsserts: Val.Obj => Unit,
@@ -306,9 +307,9 @@ object Val{
     new Val.Obj(pos, null, true, null, null, cache, allKeys)
   }
 
-  abstract class Func(val pos: Position,
+  abstract class Func(override val pos: Position,
                       val defSiteValScope: ValScope,
-                      val params: Params) extends Val with Expr {
+                      val params: Params) extends Val {
 
     def evalRhs(scope: ValScope, ev: EvalScope, fs: FileScope, pos: Position): Val
 
