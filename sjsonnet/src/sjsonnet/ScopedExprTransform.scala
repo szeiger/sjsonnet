@@ -26,7 +26,7 @@ class ScopedExprTransform extends ExprTransform {
         else ObjBody.MemberList(pos, binds2, fields3, asserts2)
       }
 
-    case Function(pos, params, body) =>
+    case Function(_, params, _, _) =>
       nestedNames(params.names)(rec(e))
 
     case ObjComp(pos, preLocals, key, value, postLocals, first, rest) =>
@@ -63,7 +63,7 @@ class ScopedExprTransform extends ExprTransform {
     if(x2 eq x) f else f.copy(fieldName = x2)
   }
 
-  protected[this] def transformFieldNoName(f: Member.Field): Member.Field = {
+  def transformFieldNoName(f: Member.Field): Member.Field = {
     def g = {
       val y = f.args
       val z = f.rhs

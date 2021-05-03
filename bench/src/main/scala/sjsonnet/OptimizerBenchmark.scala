@@ -51,7 +51,7 @@ class OptimizerBenchmark {
 
   class Counter extends ExprTransform {
     var total, vals, exprs, arrVals, staticArrExprs, otherArrExprs, staticObjs, missedStaticObjs,
-      otherObjs, namedApplies, applies, arityApplies, builtin = 0
+      otherObjs, namedApplies, applies, arityApplies, builtin, closures, nonClosures = 0
     val applyArities = new mutable.LongMap[Int]()
     def transform(e: Expr) = {
       total += 1
@@ -63,6 +63,7 @@ class OptimizerBenchmark {
           if(a.value.forall(_.isInstanceOf[Val])) staticArrExprs += 1
           else otherArrExprs += 1
         case _: Val.Obj => staticObjs += 1
+        case f: Expr.Function => if(f.closure) closures += 1 else nonClosures += 1
         case e: Expr.ObjBody.MemberList =>
           if(e.binds == null && e.asserts == null && e.fields.forall(_.isStatic)) missedStaticObjs += 1
           else otherObjs += 1
@@ -79,12 +80,21 @@ class OptimizerBenchmark {
       }
       rec(e)
     }
+    override def transformBind(b: Expr.Bind): Expr.Bind = {
+      if(b.closure) closures += 1 else nonClosures += 1
+      super.transformBind(b)
+    }
+    override def transformField(f: Expr.Member.Field): Expr.Member.Field = {
+      if(f.closure) closures += 1 else nonClosures += 1
+      super.transformField(f)
+    }
     override def toString = {
       val arities = applyArities.toSeq.sortBy(_._1).map { case (a,b) => s"$a: $b" }.mkString(", ")
       s"Total: $total, Val: $vals, Expr: $exprs, Val.Arr: $arrVals, static Expr.Arr: $staticArrExprs, "+
         s"other Expr.Arr: $otherArrExprs, Val.Obj: $staticObjs, static MemberList: $missedStaticObjs, "+
         s"other MemberList: $otherObjs, named Apply: $namedApplies, other Apply: $applies, "+
-        s"ApplyN: $arityApplies, ApplyBuiltin*: $builtin; Apply arities: {$arities}"
+        s"ApplyN: $arityApplies, ApplyBuiltin*: $builtin; Apply arities: {$arities}, "+
+        s"Closures: $closures, Non-closures: $nonClosures"
     }
   }
 }

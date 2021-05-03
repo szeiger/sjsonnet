@@ -100,11 +100,11 @@ abstract class ExprTransform {
         if(x2 eq x) expr
         else LookupSuper(pos, selfIdx, x2)
 
-      case Function(pos, x, y) =>
+      case Function(pos, x, y, closure) =>
         val x2 = transformParams(x)
         val y2 = transform(y)
         if((x2 eq x) && (y2 eq y)) expr
-        else Function(pos, x2, y2)
+        else Function(pos, x2, y2, closure)
 
       case LocalExpr(pos, x, y) =>
         val x2 = transformBinds(x)

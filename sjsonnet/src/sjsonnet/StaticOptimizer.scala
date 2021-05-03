@@ -3,7 +3,11 @@ package sjsonnet
 import Expr._
 import ScopedExprTransform._
 
+import scala.util.control.Breaks
+
 class StaticOptimizer(ev: EvalScope) extends ScopedExprTransform {
+  val closureId = new ClosureIdentifier
+
   def optimize(e: Expr): Expr = transform(e)
 
   override def transform(e: Expr): Expr = e match {
@@ -68,20 +72,20 @@ class StaticOptimizer(ev: EvalScope) extends ScopedExprTransform {
       val v = scope.get(name)
       v match {
         case ScopedVal(v: Val with Expr, _, _) => v
-        case ScopedVal(e, _, idx) => ValidId(pos, name, idx)
+        case ScopedVal(e, _, idx) => ValidId(pos, name, scope.size-idx)
         case null if name == "std" => Std.Std
         case _ => e
       }
 
     case Self(pos) =>
       scope.get("self") match {
-        case ScopedVal(v, _, idx) if v != null => ValidId(pos, "self", idx)
+        case ScopedVal(v, _, idx) if v != null => ValidId(pos, "self", scope.size-idx)
         case _ => e
       }
 
     case $(pos) =>
       scope.get("$") match {
-        case ScopedVal(v, _, idx) if v != null => ValidId(pos, "$", idx)
+        case ScopedVal(v, _, idx) if v != null => ValidId(pos, "$", scope.size-idx)
         case _ => e
       }
 
@@ -100,13 +104,34 @@ class StaticOptimizer(ev: EvalScope) extends ScopedExprTransform {
         case other => other
       }
 
+    case _: Function =>
+      super.transform(e) match {
+        case f: Expr.Function if closureId.isClosed(scope)(_.transform(f)) =>
+          f.copy(closure = true)
+        case f => f
+      }
+
     case e => super.transform(e)
+  }
+
+  override def transformBind(b: Bind): Bind = {
+    val b2 = super.transformBind(b)
+    if(b2 != null && closureId.isClosed(scope)(_.transformBind(b2)))
+      b2.copy(closure = true)
+    else b2
+  }
+
+  override def transformFieldNoName(f: Expr.Member.Field): Expr.Member.Field = {
+    val f2 = super.transformFieldNoName(f)
+    if(closureId.isClosed(scope)(_.transformFieldNoName(f2)))
+      f2.copy(closure = true)
+    else f2
   }
 
   object ValidSuper {
     def unapply(s: Super): Option[(Position, Int)] =
       scope.get("self") match {
-        case ScopedVal(v, _, idx) if v != null => Some((s.pos, idx))
+        case ScopedVal(v, _, idx) if v != null => Some((s.pos, scope.size-idx))
         case _ => None
       }
   }
@@ -152,14 +177,14 @@ class StaticOptimizer(ev: EvalScope) extends ScopedExprTransform {
   }
 
   private def rebindApply(pos: Position, lhs: Expr, args: Array[Expr], names: Array[String]): Apply = lhs match {
-      case ValidId(_, name, nameIdx) =>
+      case ValidId(_, name, _) =>
         scope.get(name) match {
-          case ScopedVal(Function(_, params, _), _, _) =>
+          case ScopedVal(Function(_, params, _, _), _, _) =>
             rebind(args, names, params) match {
               case null => null
               case newArgs => Apply(pos, lhs, newArgs, null)
             }
-          case ScopedVal(Bind(_, _, params, _), _, _) =>
+          case ScopedVal(Bind(_, _, params, _, _), _, _) =>
             rebind(args, names, params) match {
               case null => null
               case newArgs => Apply(pos, lhs, newArgs, null)
@@ -197,5 +222,28 @@ class StaticOptimizer(ev: EvalScope) extends ScopedExprTransform {
       i += 1
     }
     target
+  }
+}
+
+class ClosureIdentifier extends ScopedExprTransform {
+  private var minIdx = Int.MaxValue
+  private var target: Int = 0
+  def isClosed[T](sc: ScopedExprTransform.Scope)(f: this.type => T): Boolean = {
+    minIdx = Int.MaxValue
+    target = sc.size
+    Breaks.breakable(nestedNew(sc)(f(this)))
+    minIdx >= target
+  }
+  private def found(deBrujin: Int): Unit = {
+    val idx = scope.size - deBrujin
+    if(idx < minIdx) minIdx = idx
+    if(minIdx < target) Breaks.break()
+  }
+  override def transform(e: Expr): Expr = e match {
+    case Expr.ValidId(_, _, deBrujin) => found(deBrujin); e
+    case Expr.SelectSuper(_, deBrujin, _) => found(deBrujin); e
+    case Expr.LookupSuper(_, deBrujin, _) => found(deBrujin); e
+    case Expr.InSuper(_, _, deBrujin) => found(deBrujin); e
+    case e => super.transform(e)
   }
 }
