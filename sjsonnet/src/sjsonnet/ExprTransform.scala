@@ -119,12 +119,12 @@ abstract class ExprTransform {
         if((x2 eq x) && (y2 eq y) && (z2 eq z)) expr
         else IfElse(pos, x2, y2, z2)
 
-      case ObjBody.MemberList(pos, x, y, z) =>
+      case ObjBody.MemberList(pos, x, y, z, closure) =>
         val x2 = transformBinds(x)
         val y2 = transformFields(y)
         val z2 = transformAsserts(z)
         if((x2 eq x) && (y2 eq y) && (z2 eq z)) expr
-        else ObjBody.MemberList(pos, x2, y2, z2)
+        else ObjBody.MemberList(pos, x2, y2, z2, closure)
 
       case AssertExpr(pos, x, y) =>
         val x2 = transformAssert(x)

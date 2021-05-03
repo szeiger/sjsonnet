@@ -140,7 +140,7 @@ object Expr{
 
   trait ObjBody extends Expr
   object ObjBody{
-    case class MemberList(pos: Position, binds: Array[Bind], fields: Array[Member.Field], asserts: Array[Member.AssertStmt]) extends ObjBody
+    case class MemberList(pos: Position, binds: Array[Bind], fields: Array[Member.Field], asserts: Array[Member.AssertStmt], closure: Boolean) extends ObjBody
     case class ObjComp(pos: Position,
                        preLocals: Array[Bind],
                        key: Expr,

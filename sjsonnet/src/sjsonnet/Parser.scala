@@ -320,7 +320,7 @@ class Parser(val currentFile: Path) {
         if(a.isEmpty) null else a
       }
       if(binds == null && asserts == null && fields.forall(_.isStatic)) Val.staticObject(pos, fields)
-      else Expr.ObjBody.MemberList(pos, binds, fields, asserts)
+      else Expr.ObjBody.MemberList(pos, binds, fields, asserts, false)
     case (pos, exprs, Some(comps)) =>
       val preLocals = exprs
         .takeWhile(_.isInstanceOf[Expr.Bind])

@@ -98,7 +98,7 @@ class StaticOptimizer(ev: EvalScope) extends ScopedExprTransform {
 
     case m: ObjBody.MemberList =>
       super.transform(m) match {
-        case m @ ObjBody.MemberList(pos, binds, fields, asserts) =>
+        case m @ ObjBody.MemberList(pos, binds, fields, asserts, closure) =>
           if(binds == null && asserts == null && fields.forall(_.isStatic)) Val.staticObject(pos, fields)
           else m
         case other => other
@@ -176,22 +176,36 @@ class StaticOptimizer(ev: EvalScope) extends ScopedExprTransform {
     }
   }
 
-  private def rebindApply(pos: Position, lhs: Expr, args: Array[Expr], names: Array[String]): Apply = lhs match {
-      case ValidId(_, name, _) =>
-        scope.get(name) match {
-          case ScopedVal(Function(_, params, _, _), _, _) =>
-            rebind(args, names, params) match {
-              case null => null
-              case newArgs => Apply(pos, lhs, newArgs, null)
-            }
-          case ScopedVal(Bind(_, _, params, _, _), _, _) =>
-            rebind(args, names, params) match {
-              case null => null
-              case newArgs => Apply(pos, lhs, newArgs, null)
-            }
-          case _ => null
-        }
-      case _ => null
+  private def rebindApply(pos: Position, lhs: Expr, args: Array[Expr], names: Array[String]): Apply = findFunction(lhs) match {
+    case ScopedVal(Function(_, params, _, _), _, _) =>
+      rebind(args, names, params) match {
+        case null => null
+        case newArgs => Apply(pos, lhs, newArgs, null)
+      }
+    case ScopedVal(Bind(_, _, params, _, _), _, _) =>
+      rebind(args, names, params) match {
+        case null => null
+        case newArgs => Apply(pos, lhs, newArgs, null)
+      }
+    case _ => null
+  }
+
+  private def findFunction(ref: Expr): AnyRef /* Function | Bind | null */ = ref match {
+    case ValidId(_, name, _) =>
+      scope.get(name) match {
+        case ScopedVal(f: Function, _, _) => f
+        case ScopedVal(b: Bind, _, _) => b
+        case _ => null
+      }
+    case f: Function => f
+//    case Select(_, ValidId(_, bname, _), fname) =>
+//      scope.get(bname) match {
+//        case ScopedVal(o: Val.Obj, _, _) =>
+//          println(s"---------- found $bname.$fname")
+//          null
+//        case _ => null
+//      }
+    case _ => null
   }
 
   private def rebind(args: Array[Expr], argNames: Array[String], params: Params): Array[Expr] = {

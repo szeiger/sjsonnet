@@ -44,7 +44,7 @@ class Evaluator(resolver: CachedResolver,
       case e: Apply => visitApply(e)
       case e: IfElse => visitIfElse(e)
       case e: Apply3 => visitApply3(e)
-      case e: ObjBody.MemberList => visitMemberList(e.pos, e, null)
+      case e: ObjBody.MemberList => visitMemberList(e.pos, e, null, scope)
       case e: Apply2 => visitApply2(e)
       case e: AssertExpr => visitAssert(e)
       case e: ApplyBuiltin => visitApplyBuiltin(e)
@@ -125,7 +125,7 @@ class Evaluator(resolver: CachedResolver,
       Error.fail("Adjacent object literals not allowed in strict mode - Use '+' to concatenate objects", e.pos)
     val original = visitExpr(e.base).cast[Val.Obj]
     e.ext match {
-      case ext: ObjBody.MemberList => visitMemberList(e.pos, ext, original)
+      case ext: ObjBody.MemberList => visitMemberList(e.pos, ext, original, scope)
       case ext: ObjBody.ObjComp => visitObjComp(ext, original)
       case o: Val.Obj => o.addSuper(e.pos, original)
     }
@@ -509,12 +509,13 @@ class Evaluator(resolver: CachedResolver,
     arrF
   }
 
-  def visitMemberList(objPos: Position, e: ObjBody.MemberList, sup: Val.Obj)(implicit scope: ValScope): Val.Obj = {
+  def visitMemberList(objPos: Position, e: ObjBody.MemberList, sup: Val.Obj, _scope: ValScope): Val.Obj = {
     val asserts = e.asserts
     val fields = e.fields
     var cachedSimpleScope: ValScope = null.asInstanceOf[ValScope]
     var cachedObj: Val.Obj = null
     var asserting: Boolean = false
+    implicit val scope = if(e.closure) ValScope.empty else _scope
 
     def makeNewScope(self: Val.Obj, sup: Val.Obj): ValScope = {
       if((sup eq null) && (self eq cachedObj)) {
@@ -605,7 +606,7 @@ class Evaluator(resolver: CachedResolver,
     lazy val newSelf: Val.Obj = {
       val builder = new java.util.LinkedHashMap[String, Val.Obj.Member]
       for(s <- visitComp(e.first :: e.rest, Array(compScope))){
-        lazy val newScope: ValScope = s.extend(newBindings, newSelf, null)
+        lazy val newScope: ValScope = s.extend(newBindings, newSelf)
 
         lazy val newBindings = visitBindings(binds, (self, sup) => newScope)
 
@@ -614,7 +615,7 @@ class Evaluator(resolver: CachedResolver,
             builder.put(k, new Val.Obj.Member(false, Visibility.Normal) {
               def invoke(self: Val.Obj, sup: Val.Obj, fs: FileScope, ev: EvalScope): Val =
                 visitExpr(e.value)(
-                  s.extend(newBindings, self, null)
+                  s.extend(newBindings, self)
                 )
             })
           case Val.Null(_) => // do nothing
