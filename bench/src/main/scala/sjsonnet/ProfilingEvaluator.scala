@@ -80,7 +80,7 @@ class ProfilingEvaluator(resolver: CachedResolver,
         case p: Expr.Params => getChildren(p)
         case a: Expr.Member.AssertStmt => Seq(a.value, a.msg)
         case a: Array[Expr.Bind] => a.iterator.flatMap(getChildren).toSeq
-        case a: Array[Expr.Member.Field] => a.iterator.flatMap(getChildren).toSeq
+        case a: Array[Expr.Member.Field] => a.iterator.flatMap(f => getChildren(f: Expr.Member)).toSeq
         case a: Array[Expr.Member.AssertStmt] => a.iterator.flatMap(getChildren).toSeq
         case s: Seq[_] => s.collect { case e: Expr => e }
         case s: Some[_] => s.collect { case e: Expr => e }

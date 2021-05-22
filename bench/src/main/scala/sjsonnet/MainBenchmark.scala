@@ -13,7 +13,7 @@ object MainBenchmark {
     "-J", "../../universe2/mt-shards/dev/az-westus-c2",
   )
 
-  def findFiles(): (IndexedSeq[(Path, String)], EvalScope) = {
+  def findFiles(): (IndexedSeq[(Path, String)], Interpreter) = {
     val parser = mainargs.ParserForClass[Config]
     val config = parser.constructEither(MainBenchmark.mainArgs, autoPrintHelpAndExit = None).getOrElse(???)
     val file = config.file
@@ -27,7 +27,9 @@ object MainBenchmark {
     )
     val renderer = new Renderer(new StringWriter, indent = 3)
     interp.interpret0(interp.resolver.read(path).get, path, renderer).getOrElse(???)
-    (interp.parseCache.keySet.toIndexedSeq, interp.evaluator)
+    val allInputs = interp.parseCache.keySet.toIndexedSeq
+    val inputs = allInputs.find(_._1 == path).get +: allInputs.filter(_._1 != path)
+    (inputs, interp)
   }
 }
 

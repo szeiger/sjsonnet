@@ -51,7 +51,7 @@ object Expr{
                      plus: Boolean,
                      args: Params,
                      sep: Visibility,
-                     rhs: Expr) extends Member {
+                     rhs: Expr) extends Member with Expr {
       def isStatic = fieldName.isInstanceOf[FieldName.Fixed] && !plus && args == null && sep == Visibility.Normal && rhs.isInstanceOf[Val.Literal]
     }
     case class AssertStmt(value: Expr, msg: Expr) extends Member
@@ -60,7 +60,12 @@ object Expr{
   case class Params(names: Array[String], defaultExprs: Array[Expr]){
     val paramMap = names.zipWithIndex.toMap
     override def toString = s"Params(${arrStr(names)}, ${arrStr(defaultExprs)})"
+    lazy val args = names.zipWithIndex.map { case (n, i) => new Arg(this, n, i) }
   }
+
+  // Only used in ScopedExprTransform as a placeholder for Params arguments
+  class Arg(val params: Params, val name: String, val idx: Int) extends Expr { def pos: Position = ??? }
+
 
   case class UnaryOp(pos: Position, op: Int, value: Expr) extends Expr
   object UnaryOp{
@@ -104,7 +109,7 @@ object Expr{
     override def toString = s"LocalExpr($pos, ${arrStr(bindings)}, $returned)"
   }
 
-  case class Bind(pos: Position, name: String, args: Params, rhs: Expr) extends Member
+  case class Bind(pos: Position, name: String, args: Params, rhs: Expr) extends Member with Expr
   case class Import(pos: Position, value: String) extends Expr
   case class ImportStr(pos: Position, value: String) extends Expr
   case class Error(pos: Position, value: Expr) extends Expr

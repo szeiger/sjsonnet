@@ -1,5 +1,7 @@
 package sjsonnet
 
+import java.util
+
 import sjsonnet.Expr.ObjBody.{MemberList, ObjComp}
 import sjsonnet.Expr._
 
@@ -8,9 +10,6 @@ import scala.collection.immutable.HashMap
 class ScopedExprTransform extends ExprTransform {
   import ScopedExprTransform._
   var scope: Scope = emptyScope
-
-  // Marker for Exprs in the scope that should not be used because they need to be evaluated in a different scope
-  val dynamicExpr = new Expr { def pos: Position = ???; override def toString = "dynamicExpr" }
 
   def transform(e: Expr): Expr = e match {
     case LocalExpr(pos, bindings, returned) =>
@@ -31,7 +30,7 @@ class ScopedExprTransform extends ExprTransform {
       else ObjBody.MemberList(pos, binds2, fields3, asserts2)
 
     case Function(pos, params, body) =>
-      nestedNames(params.names)(rec(e))
+      nestedArgs(params)(rec(e))
 
     case ObjComp(pos, preLocals, key, value, postLocals, first, rest) =>
       val (f2 :: r2, (k2, (pre2, post2, v2))) = compSpecs(first :: rest, { () =>
@@ -53,7 +52,7 @@ class ScopedExprTransform extends ExprTransform {
   override def transformBind(b: Bind): Bind = {
     val args = b.args
     val rhs = b.rhs
-    nestedNames(if(args == null) null else args.names) {
+    nestedArgs(args) {
       val args2 = transformParams(args)
       val rhs2 = transform(rhs)
       if((args2 eq args) && (rhs2 eq rhs)) b
@@ -76,7 +75,7 @@ class ScopedExprTransform extends ExprTransform {
       if((y2 eq y) && (z2 eq z)) f else f.copy(args = y2, rhs = z2)
     }
     if(f.args == null) g
-    else nestedNames(f.args.names)(g)
+    else nestedArgs(f.args)(g)
   }
 
   override protected[this] def transformField(f: Member.Field): Member.Field = ???
@@ -154,20 +153,38 @@ class ScopedExprTransform extends ExprTransform {
   protected[this] def nestedBindings[T](self0: Expr, super0: Expr, a: Array[Bind])(f: => T): T =
     nestedObject(self0, super0)(nestedBindings(a)(f))
 
-  protected[this] def nestedNames[T](a: Array[String])(f: => T): T = {
-    if(a == null || a.length == 0) f
+  protected[this] def nestedArgs[T](p: Params)(f: => T): T = {
+    if(p == null || p.names.length == 0) f
     else {
-      val newm = a.zipWithIndex.map { case (n, idx) => (n, new ScopedVal(dynamicExpr, scope, scope.size + idx)) }
+      val a = p.names
+      val newm = a.zipWithIndex.map { case (n, idx) => (n, new ScopedVal(p.args(idx), scope, scope.size + idx)) }
       nestedNew(new Scope(scope.mappings ++ newm, scope.size + a.length))(f)
     }
   }
 }
 
 object ScopedExprTransform {
-  final case class ScopedVal(v: AnyRef, sc: Scope, idx: Int)
+  final case class ScopedVal(v: Expr, sc: Scope, idx: Int)
   final class Scope(val mappings: HashMap[String, ScopedVal], val size: Int) {
     def get(s: String): ScopedVal = mappings.getOrElse(s, null)
     def contains(s: String): Boolean = mappings.contains(s)
   }
   def emptyScope: Scope = new Scope(HashMap.empty, 0)
+
+  // Marker for Exprs in the scope that should not be used because they need to be evaluated in a different scope
+  val dynamicExpr = new Expr { def pos: Position = ???; override def toString = "dynamicExpr" }
+
+  def buildScopeMap(e: Expr, m: util.IdentityHashMap[Expr, Scope] = new util.IdentityHashMap[Expr, Scope]()): util.IdentityHashMap[Expr, Scope] = {
+    new ScopedExprTransform {
+      override def transform(e: Expr): Expr = {
+        m.put(e, scope)
+        super.transform(e)
+      }
+      override def transformBind(b: Bind): Bind = {
+        m.put(b, scope)
+        super.transformBind(b)
+      }
+    }.transform(e)
+    m
+  }
 }
