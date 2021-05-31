@@ -3,8 +3,22 @@ package sjsonnet
 import Expr._
 import ScopedExprTransform._
 
+import scala.collection.mutable
+
 class StaticOptimizer(ev: EvalScope) extends ScopedExprTransform {
-  def optimize(e: Expr): Expr = transform(e)
+  def optimize(e: Expr): Expr = {
+    val e2 = transform(e)
+
+    val rc = new RefCounter
+    rc.transform(e2)
+    val in = new Inliner(rc)
+    val e3 = in.transform(e2)
+
+    val rc2 = new RefCounter
+    rc2.transform(e3)
+    val de = new DefEliminator(rc2)
+    de.transform(e3)
+  }
 
   override def transform(_e: Expr): Expr = super.transform(_e) match {
     case a: Apply => transformApply(a)
@@ -26,21 +40,21 @@ class StaticOptimizer(ev: EvalScope) extends ScopedExprTransform {
 
     case e @ Id(pos, name) =>
       scope.get(name) match {
-        case ScopedVal(v: Val with Expr, _, _) => v
-        case ScopedVal(_, _, idx) => ValidId(pos, name, idx)
+        case ScopedVal(v: Val with Expr, _, _, _) => v
+        case ScopedVal(_, _, idx, _) => ValidId(pos, name, idx)
         case null if name == "std" => Std.Std
         case _ => e
       }
 
     case e @ Self(pos) =>
       scope.get("self") match {
-        case ScopedVal(v, _, idx) if v != null => ValidId(pos, "self", idx)
+        case ScopedVal(v, _, idx, _) if v != null => ValidId(pos, "self", idx)
         case _ => e
       }
 
     case e @ $(pos) =>
       scope.get("$") match {
-        case ScopedVal(v, _, idx) if v != null => ValidId(pos, "$", idx)
+        case ScopedVal(v, _, idx, _) if v != null => ValidId(pos, "$", idx)
         case _ => e
       }
 
@@ -57,7 +71,7 @@ class StaticOptimizer(ev: EvalScope) extends ScopedExprTransform {
   object ValidSuper {
     def unapply(s: Super): Option[(Position, Int)] =
       scope.get("self") match {
-        case ScopedVal(v, _, idx) if v != null => Some((s.pos, idx))
+        case ScopedVal(v, _, idx, _) if v != null => Some((s.pos, idx))
         case _ => None
       }
   }
@@ -127,12 +141,12 @@ class StaticOptimizer(ev: EvalScope) extends ScopedExprTransform {
 
     case ValidId(_, name, nameIdx) =>
       scope.get(name) match {
-        case ScopedVal(Function(_, params, _), _, _) =>
+        case ScopedVal(Function(_, params, _), _, _, _) =>
           rebind(args, names, params) match {
             case null => null
             case newArgs => Apply(pos, lhs, newArgs, null)
           }
-        case ScopedVal(Bind(_, _, params, _), _, _) =>
+        case ScopedVal(Bind(_, _, params, _), _, _, _) =>
           rebind(args, names, params) match {
             case null => null
             case newArgs => Apply(pos, lhs, newArgs, null)
@@ -172,5 +186,165 @@ class StaticOptimizer(ev: EvalScope) extends ScopedExprTransform {
       i += 1
     }
     target
+  }
+}
+
+class RefCounter extends ScopedExprTransform {
+  final class Def(val idx: Int, var all: Int = 0, var safe: Int = 0)
+
+  val defsByBind = new java.util.IdentityHashMap[Bind, Def]
+  private var safe = true
+
+  override def transform(e: Expr): Expr = e match {
+    case LocalExpr(_, bs, _) =>
+      bs.zipWithIndex.foreach { case (b, i) =>
+        val key = scope.size+i
+        //assert(!defsByBind.containsKey(b))
+        if(!defsByBind.containsKey(b)) {
+          val d = new Def(key)
+          defsByBind.put(b, d)
+        }
+      }
+      super.transform(e)
+    case ObjBody.MemberList(_, bs, _, _) if bs != null =>
+      bs.zipWithIndex.foreach { case (b, i) =>
+        val key = scope.size+2+i
+        //assert(!defsByBind.containsKey(b), s"unexpected duplicate Bind: $b")
+        if(!defsByBind.containsKey(b)) {
+          val d = new Def(key)
+          defsByBind.put(b, d)
+        }
+      }
+      super.transform(e)
+    case ValidId(_, name, idx) =>
+      val sv = scope.get(name)
+      if(sv != null && sv.bind != null) {
+        defsByBind.get(sv.bind) match {
+          case null =>
+          case d =>
+            assert(d.idx == idx)
+            d.all += 1
+            if(safe) d.safe += 1
+        }
+      }
+      super.transform(e)
+    case _: Comp | _: ObjBody.ObjComp => //TODO treat first generator as safe
+      val prevSafe = safe
+      safe = false
+      val res = super.transform(e)
+      safe = prevSafe
+      res
+    case _ => super.transform(e)
+  }
+}
+
+class Inliner(rc: RefCounter) extends ScopedExprTransform {
+  override def transform(e: Expr): Expr = e match {
+    case e @ ValidId(_, name, idx) =>
+      val sv = scope.get(name)
+      if(sv != null && sv.bind != null && sv.bind.args == null) { //TODO handle functions
+        val d = rc.defsByBind.get(sv.bind)
+        if(d != null && d.all == 1 && d.safe == 1) {
+          d.all = 0
+          d.safe = 0
+          println(s"---- inlining $name -> ${sv.bind.rhs}")
+          sv.bind.rhs
+        } else e
+      } else e
+
+    case _ => super.transform(e)
+  }
+}
+
+class DefEliminator(rc: RefCounter) extends ExprTransform {
+  private val eliminated = new java.util.BitSet
+  private val transformedBinds = new java.util.IdentityHashMap[Bind, Bind]
+
+  private def process(bs: Array[Bind]): (Array[Bind], mutable.ArrayBuffer[Int]) = {
+    var res: mutable.ArrayBuilder.ofRef[Bind] = null
+    var elim: mutable.ArrayBuffer[Int] = null
+    var i = 0
+    while(i < bs.length) {
+      val b = bs(i)
+      val d = rc.defsByBind.get(b)
+      val eliminate = d.all match {
+        case 0 => true
+        //case 1 if d.safe == 1 => true
+        case _ => false
+      }
+      if(eliminate) {
+        if(res == null) {
+          res = new mutable.ArrayBuilder.ofRef[Bind]
+          if(i > 0) res.addAll(bs.iterator.take(i))
+          elim = new mutable.ArrayBuffer
+        }
+        elim.addOne(d.idx)
+      } else {
+        if(res != null) res.addOne(b)
+      }
+      i += 1
+    }
+    if(res == null) (bs, null) else (res.result(), elim)
+  }
+
+  def translate(idx: Int): Int = {
+    assert(!eliminated.get(idx))
+    var res = idx
+    var i = 0
+    while(i < idx) {
+      if(eliminated.get(i)) res -= 1
+      i += 1
+    }
+    res
+  }
+
+  override protected[this] def transformBind(b: Bind): Bind = {
+    transformedBinds.get(b) match {
+      case null =>
+        val b2 = super.transformBind(b)
+        transformedBinds.put(b, b2)
+        b2
+      case b2 => b2
+    }
+  }
+
+  def transform(e: Expr): Expr = e match {
+    case LocalExpr(pos, bs, ret) =>
+      val (bs2, elim) = process(bs)
+      if(bs2 eq bs) rec(e)
+      else {
+        assert(bs2.length + elim.length == bs.length)
+        elim.foreach(i => eliminated.set(i))
+        val ret2 = transform(ret)
+        val bs3 = transformBinds(bs2)
+        elim.foreach(i => eliminated.clear(i))
+        if(bs3.length == 0) ret2
+        else LocalExpr(pos, bs3, ret2)
+      }
+    case ObjBody.MemberList(pos, bs, fs, as) if bs != null =>
+      val (bs2, elim) = process(bs)
+      if(bs2 eq bs) rec(e)
+      else {
+        assert(bs2.length + elim.length == bs.length, s"${bs2.length} + ${elim.length} should be ${bs.length}")
+        elim.foreach(i => eliminated.set(i))
+        val fs2 = transformFields(fs)
+        val as2 = transformAsserts(as)
+        val bs3 = transformBinds(bs2)
+        elim.foreach(i => eliminated.clear(i))
+        ObjBody.MemberList(pos, bs3, fs2, as2)
+      }
+    case e @ ValidId(_, _, nameIdx) =>
+      val tr = translate(nameIdx)
+      if(tr == nameIdx) e else e.copy(nameIdx = tr)
+    case e @ SelectSuper(_, selfIdx, _) =>
+      val tr = translate(selfIdx)
+      if(tr == selfIdx) e else e.copy(selfIdx = tr)
+    case e @ InSuper(_, value, selfIdx) =>
+      val tr = translate(selfIdx)
+      if(tr == selfIdx) e else e.copy(value=transform(value), selfIdx = tr)
+    case e @ LookupSuper(_, selfIdx, index) =>
+      val tr = translate(selfIdx)
+      if(tr == selfIdx) e else e.copy(selfIdx = tr, index=transform(index))
+    case _ => rec(e)
   }
 }

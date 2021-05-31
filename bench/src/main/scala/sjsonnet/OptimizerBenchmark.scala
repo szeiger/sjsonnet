@@ -40,6 +40,11 @@ class OptimizerBenchmark {
     System.err.println(s"Documents: total=${inputs.size}")
     System.err.println(s"Before: $countBefore")
     System.err.println(s"Static: $countStatic")
+    val rc = new RefCounter
+    val rr = new RefReporter(rc)
+    static.foreach(t => rc.transform(t._1))
+    static.foreach(t => rr.transform(t._1))
+    System.err.println(rr)
   }
 
   @Benchmark
@@ -114,6 +119,85 @@ class OptimizerBenchmark {
         s"other MemberList: $otherObjs, named Apply: $namedApplies, other Apply: $applies, "+
         s"ApplyN: $arityApplies, ApplyBuiltin*: $builtin; Apply arities: {$arities}, "+
         s"if/else chains: $chains, Select/ValidId chains: $selChains"
+    }
+  }
+
+  class RefCounter extends ScopedExprTransform {
+    final class Def(val idx: Int, var all: Int = 0, var safe: Int = 0)
+
+    val defsByBind = new java.util.IdentityHashMap[Expr.Bind, Def]
+    private var safe = true
+
+    override def transform(e: Expr): Expr = e match {
+      case Expr.LocalExpr(_, bs, _) =>
+        bs.zipWithIndex.foreach { case (b, i) =>
+          val key = scope.size+i
+          //assert(!defsByBind.containsKey(b))
+          if(!defsByBind.containsKey(b)) {
+            val d = new Def(key)
+            defsByBind.put(b, d)
+          }
+        }
+        super.transform(e)
+      case Expr.ObjBody.MemberList(_, bs, _, _) if bs != null =>
+        bs.zipWithIndex.foreach { case (b, i) =>
+          val key = scope.size+2+i
+          //assert(!defsByBind.containsKey(b), s"unexpected duplicate Bind: $b")
+          if(!defsByBind.containsKey(b)) {
+            val d = new Def(key)
+            defsByBind.put(b, d)
+          }
+        }
+        super.transform(e)
+      case Expr.ValidId(_, name, idx) =>
+        val sv = scope.get(name)
+        if(sv != null && sv.bind != null) {
+          defsByBind.get(sv.bind) match {
+            case null =>
+            case d =>
+              assert(d.idx == idx)
+              d.all += 1
+              if(safe) d.safe += 1
+          }
+        }
+        super.transform(e)
+      case _: Expr.Comp | _: Expr.ObjBody.ObjComp => //TODO treat first generator as safe
+        val prevSafe = safe
+        safe = false
+        val res = super.transform(e)
+        safe = prevSafe
+        res
+      case _ => super.transform(e)
+    }
+  }
+
+  class RefReporter(rc: RefCounter) extends ScopedExprTransform {
+    var ref0, ref1safeval, ref1safefunc, ref1, refMore = 0
+
+    private def count(b: Expr.Bind): Unit = {
+      val d = rc.defsByBind.get(b)
+      d.all match {
+        case 0 => ref0 += 1
+          //System.err.println(s"Found 0 refs for $b")
+        case 1 if d.safe == 1 && b.args == null => ref1safeval += 1
+        case 1 if d.safe == 1 => ref1safefunc += 1
+        case 1 => ref1 += 1
+        case _ => refMore += 1
+      }
+    }
+
+    override def transform(e: Expr): Expr = e match {
+      case Expr.LocalExpr(_, bs, _) =>
+        bs.foreach(count)
+        super.transform(e)
+      case Expr.ObjBody.MemberList(_, bs, _, _) if bs != null =>
+        bs.foreach(count)
+        super.transform(e)
+      case _ => super.transform(e)
+    }
+
+    override def toString = {
+      s"Ref Counts: 0 refs -> $ref0, val with 1 safe ref: $ref1safeval, func with 1 safe ref: $ref1safefunc, 1 unsafe ref -> $ref1, more refs: $refMore"
     }
   }
 }
