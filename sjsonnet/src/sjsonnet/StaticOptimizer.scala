@@ -26,28 +26,28 @@ class StaticOptimizer(ev: EvalScope) extends ScopedExprTransform {
 
     case e @ Id(pos, name) =>
       scope.get(name) match {
-        case ScopedVal(v: Val with Expr, _, _) => v
-        case ScopedVal(_, _, idx) => ValidId(pos, name, idx)
+        case ScopedVal(v: Val with Expr, _, _, _) => v
+        case ScopedVal(_, _, idx, sym) => ValidId(pos, sym, idx)
         case null if name == "std" => Std.Std
         case _ => e
       }
 
     case e @ Self(pos) =>
       scope.get("self") match {
-        case ScopedVal(v, _, idx) if v != null => ValidId(pos, "self", idx)
+        case ScopedVal(v, _, idx, sym) if v != null => ValidId(pos, sym, idx)
         case _ => e
       }
 
     case e @ $(pos) =>
       scope.get("$") match {
-        case ScopedVal(v, _, idx) if v != null => ValidId(pos, "$", idx)
+        case ScopedVal(v, _, idx, sym) if v != null => ValidId(pos, sym, idx)
         case _ => e
       }
 
     case a: Arr if a.value.forall(_.isInstanceOf[Val]) =>
       new Val.Arr(a.pos, a.value.map(e => e.asInstanceOf[Val]))
 
-    case m @ ObjBody.MemberList(pos, binds, fields, asserts) =>
+    case m @ ObjBody.MemberList(pos, binds, fields, asserts, _, _) =>
       if(binds == null && asserts == null && fields.forall(_.isStatic)) Val.staticObject(pos, fields)
       else m
 
@@ -57,7 +57,7 @@ class StaticOptimizer(ev: EvalScope) extends ScopedExprTransform {
   object ValidSuper {
     def unapply(s: Super): Option[(Position, Int)] =
       scope.get("self") match {
-        case ScopedVal(v, _, idx) if v != null => Some((s.pos, idx))
+        case ScopedVal(v, _, idx, _) if v != null => Some((s.pos, idx))
         case _ => None
       }
   }
@@ -118,21 +118,21 @@ class StaticOptimizer(ev: EvalScope) extends ScopedExprTransform {
               f2 match {
                 case f2: Val.Builtin1 if alen == 1 => Expr.ApplyBuiltin1(pos, f2, rargs(0))
                 case f2: Val.Builtin2 if alen == 2 => Expr.ApplyBuiltin2(pos, f2, rargs(0), rargs(1))
-                case _ if f2.params.names.length == alen => Expr.ApplyBuiltin(pos, f2, rargs)
+                case _ if f2.params.symbols.length == alen => Expr.ApplyBuiltin(pos, f2, rargs)
                 case _ => null
               }
             case e => e
           }
       }
 
-    case ValidId(_, name, nameIdx) =>
-      scope.get(name) match {
-        case ScopedVal(Function(_, params, _), _, _) =>
+    case ValidId(_, sym, nameIdx) =>
+      scope.get(sym.name) match {
+        case ScopedVal(Function(_, params, _), _, _, _) =>
           rebind(args, names, params) match {
             case null => null
             case newArgs => Apply(pos, lhs, newArgs, null)
           }
-        case ScopedVal(Bind(_, _, params, _), _, _) =>
+        case ScopedVal(Bind(_, _, params, _), _, _, _) =>
           rebind(args, names, params) match {
             case null => null
             case newArgs => Apply(pos, lhs, newArgs, null)
@@ -144,10 +144,10 @@ class StaticOptimizer(ev: EvalScope) extends ScopedExprTransform {
   }
 
   private def rebind(args: Array[Expr], argNames: Array[String], params: Params): Array[Expr] = {
-    if(args.length == params.names.length && argNames == null) return args
-    if(args.length > params.names.length) return null // too many args
+    if(args.length == params.symbols.length && argNames == null) return args
+    if(args.length > params.symbols.length) return null // too many args
     val positional = if(argNames != null) args.length - argNames.length else args.length
-    val target = new Array[Expr](params.names.length)
+    val target = new Array[Expr](params.symbols.length)
     System.arraycopy(args, 0, target, 0, positional)
     if(argNames != null) {
       var i = 0

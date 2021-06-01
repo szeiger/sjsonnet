@@ -320,7 +320,7 @@ class Parser(val currentFile: Path) {
         if(a.isEmpty) null else a
       }
       if(binds == null && asserts == null && fields.forall(_.isStatic)) Val.staticObject(pos, fields)
-      else Expr.ObjBody.MemberList(pos, binds, fields, asserts)
+      else Expr.ObjBody.MemberList(pos, binds, fields, asserts, new Symbol("self"), new Symbol("super"))
     case (pos, exprs, Some(comps)) =>
       val preLocals = exprs
         .takeWhile(_.isInstanceOf[Expr.Bind])
@@ -343,7 +343,7 @@ class Parser(val currentFile: Path) {
           Fail.opaque(s"""no duplicate field: "${lhs.asInstanceOf[Val.Str].value}" """)
         case _ => // do nothing
       }
-      Expr.ObjBody.ObjComp(pos, preLocals.toArray, lhs, rhs, postLocals.toArray, comps._1, comps._2.toList)
+      Expr.ObjBody.ObjComp(pos, preLocals.toArray, lhs, rhs, postLocals.toArray, comps._1, comps._2.toList, new Symbol("self"), new Symbol("super"))
   }
 
   def member[_: P]: P[Expr.Member] = P( objlocal | "assert" ~~ assertStmt | field )
@@ -361,7 +361,7 @@ class Parser(val currentFile: Path) {
   def objlocal[_: P] = P( "local" ~~ break ~/ bind )
   def compspec[_: P]: P[Seq[Expr.CompSpec]] = P( (forspec | ifspec).rep )
   def forspec[_: P] =
-    P( Pos ~~ "for" ~~ break ~/ id ~ "in" ~~ break ~ expr ).map(Expr.ForSpec.tupled)
+    P( Pos ~~ "for" ~~ break ~/ id.map(new Symbol(_)) ~ "in" ~~ break ~ expr ).map(Expr.ForSpec.tupled)
   def ifspec[_: P] = P( Pos ~~ "if" ~~ break  ~/ expr ).map(Expr.IfSpec.tupled)
   def fieldname[_: P] = P(
     id.map(Expr.FieldName.Fixed) |
@@ -372,7 +372,7 @@ class Parser(val currentFile: Path) {
     P( expr ~ (":" ~ expr).?.map(_.getOrElse(null)) ).map(Expr.Member.AssertStmt.tupled)
 
   def bind[_: P] =
-    P( Pos ~~ id ~ ("(" ~/ params.? ~ ")").?.map(_.flatten).map(_.getOrElse(null)) ~ "=" ~ expr ).map(Expr.Bind.tupled)
+    P( Pos ~~ id.map(new Symbol(_)) ~ ("(" ~/ params.? ~ ")").?.map(_.flatten).map(_.getOrElse(null)) ~ "=" ~ expr ).map(Expr.Bind.tupled)
 
   def args[_: P] = P( ((id ~ "=").? ~ expr).rep(sep = ",") ~ ",".? ).flatMapX{ x =>
     if (x.sliding(2).exists{case Seq(l, r) => l._1.isDefined && r._1.isEmpty case _ => false}) {
@@ -392,7 +392,7 @@ class Parser(val currentFile: Path) {
       else seen.add(k)
     }
     if (overlap == null) {
-      val names = x.map(_._1).toArray[String]
+      val names = x.map(t => new Symbol(t._1)).toArray[Symbol]
       val exprs = x.map(_._2.getOrElse(null)).toArray[Expr]
       Pass(Expr.Params(names, exprs))
     }

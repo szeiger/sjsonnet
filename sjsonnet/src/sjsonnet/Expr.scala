@@ -25,7 +25,7 @@ object Expr{
   case class $(pos: Position) extends Expr
 
   case class Id(pos: Position, name: String) extends Expr
-  case class ValidId(pos: Position, name: String, nameIdx: Int) extends Expr
+  case class ValidId(pos: Position, sym: Symbol, nameIdx: Int) extends Expr
   case class Arr(pos: Position, value: Array[Expr]) extends Expr {
     override def toString = s"Arr($pos, ${arrStr(value)})"
   }
@@ -57,9 +57,9 @@ object Expr{
     case class AssertStmt(value: Expr, msg: Expr) extends Member
   }
 
-  case class Params(names: Array[String], defaultExprs: Array[Expr]){
-    val paramMap = names.zipWithIndex.toMap
-    override def toString = s"Params(${arrStr(names)}, ${arrStr(defaultExprs)})"
+  case class Params(symbols: Array[Symbol], defaultExprs: Array[Expr]){
+    val paramMap = symbols.map(_.name).zipWithIndex.toMap
+    override def toString = s"Params(${arrStr(symbols)}, ${arrStr(defaultExprs)})"
   }
 
   case class UnaryOp(pos: Position, op: Int, value: Expr) extends Expr
@@ -104,7 +104,7 @@ object Expr{
     override def toString = s"LocalExpr($pos, ${arrStr(bindings)}, $returned)"
   }
 
-  case class Bind(pos: Position, name: String, args: Params, rhs: Expr) extends Member
+  case class Bind(pos: Position, sym: Symbol, args: Params, rhs: Expr) extends Member
   case class Import(pos: Position, value: String) extends Expr
   case class ImportStr(pos: Position, value: String) extends Expr
   case class Error(pos: Position, value: Expr) extends Expr
@@ -131,23 +131,31 @@ object Expr{
 
   sealed trait CompSpec extends Expr
   case class IfSpec(pos: Position, cond: Expr) extends CompSpec
-  case class ForSpec(pos: Position, name: String, cond: Expr) extends CompSpec
+  case class ForSpec(pos: Position, sym: Symbol, cond: Expr) extends CompSpec
 
   case class Comp(pos: Position, value: Expr, first: ForSpec, rest: Array[CompSpec]) extends Expr
   case class ObjExtend(pos: Position, base: Expr, ext: ObjBody) extends Expr
 
   trait ObjBody extends Expr
   object ObjBody{
-    case class MemberList(pos: Position, binds: Array[Bind], fields: Array[Member.Field], asserts: Array[Member.AssertStmt]) extends ObjBody
+    case class MemberList(pos: Position, binds: Array[Bind], fields: Array[Member.Field],
+                          asserts: Array[Member.AssertStmt],
+                          selfSym: Symbol, superSym: Symbol) extends ObjBody
     case class ObjComp(pos: Position,
                        preLocals: Array[Bind],
                        key: Expr,
                        value: Expr,
                        postLocals: Array[Bind],
                        first: ForSpec,
-                       rest: List[CompSpec]) extends ObjBody {
+                       rest: List[CompSpec],
+                       selfSym: Symbol,
+                       superSym: Symbol) extends ObjBody {
       override def toString = s"ObjComp($pos, ${arrStr(preLocals)}, $key, $value, ${arrStr(postLocals)}, $first, $rest)"
     }
   }
 
+}
+
+final class Symbol(val name: String) {
+  override def toString = s"$name@${System.identityHashCode(this)}"
 }

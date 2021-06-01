@@ -67,13 +67,13 @@ class Interpreter(extVars: Map[String, ujson.Value],
           val defaults2 = f.params.defaultExprs.clone()
           var i = 0
           while(i < defaults2.length) {
-            tlaVars.get(f.params.names(i)) match {
+            tlaVars.get(f.params.symbols(i).name) match {
               case Some(v) => defaults2(i) = Materializer.toExpr(v)(evaluator)
               case None =>
             }
             i += 1
           }
-          new Val.Func(f.pos, f.defSiteValScope, Params(f.params.names, defaults2)) {
+          new Val.Func(f.pos, f.defSiteValScope, Params(f.params.symbols, defaults2)) {
             def evalRhs(vs: ValScope, es: EvalScope, fs: FileScope, pos: Position) = f.evalRhs(vs, es, fs, pos)
             override def evalDefault(expr: Expr, vs: ValScope, es: EvalScope) = f.evalDefault(expr, vs, es)
           }

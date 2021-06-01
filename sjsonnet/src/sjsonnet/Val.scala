@@ -327,14 +327,14 @@ object Val{
     override def asFunc: Func = this
 
     def apply(argsL: Array[_ <: Lazy], namedNames: Array[String], outerPos: Position)(implicit ev: EvalScope): Val = {
-      val simple = namedNames == null && params.names.length == argsL.length
+      val simple = namedNames == null && params.symbols.length == argsL.length
       val funDefFileScope: FileScope = pos match { case null => outerPos.fileScope case p => p.fileScope }
       //println(s"apply: argsL: ${argsL.length}, namedNames: $namedNames, paramNames: ${params.names.mkString(",")}")
       if(simple) {
         val newScope = defSiteValScope.extendSimple(argsL)
         evalRhs(newScope, ev, funDefFileScope, outerPos)
       } else {
-        val newScopeLen = math.max(params.names.length, argsL.length)
+        val newScopeLen = math.max(params.symbols.length, argsL.length)
         // Initialize positional args
         val base = defSiteValScope.length
         val newScope = defSiteValScope.extendBy(newScopeLen)
@@ -354,9 +354,9 @@ object Val{
             j += 1
           }
         }
-        if(argsL.length > params.names.length)
-          Error.fail("Too many args, function has " + params.names.length + " parameter(s)", outerPos)
-        if(params.names.length != argsL.length) { // Args missing -> add defaults
+        if(argsL.length > params.symbols.length)
+          Error.fail("Too many args, function has " + params.symbols.length + " parameter(s)", outerPos)
+        if(params.symbols.length != argsL.length) { // Args missing -> add defaults
           var missing: ArrayBuffer[String] = null
           var i = posArgs
           var j = base + posArgs
@@ -367,7 +367,7 @@ object Val{
                 argVals(j) = () => evalDefault(default, newScope, ev)
               } else {
                 if(missing == null) missing = new ArrayBuffer
-                missing.+=(params.names(i))
+                missing.+=(params.symbols(i).name)
               }
             }
             i += 1
@@ -384,7 +384,7 @@ object Val{
     }
 
     def apply0(outerPos: Position)(implicit ev: EvalScope): Val = {
-      if(params.names.length != 0) apply(Evaluator.emptyLazyArray, null, outerPos)
+      if(params.symbols.length != 0) apply(Evaluator.emptyLazyArray, null, outerPos)
       else {
         val funDefFileScope: FileScope = pos match { case null => outerPos.fileScope case p => p.fileScope }
         evalRhs(defSiteValScope, ev, funDefFileScope, outerPos)
@@ -392,7 +392,7 @@ object Val{
     }
 
     def apply1(argVal: Lazy, outerPos: Position)(implicit ev: EvalScope): Val = {
-      if(params.names.length != 1) apply(Array(argVal), null, outerPos)
+      if(params.symbols.length != 1) apply(Array(argVal), null, outerPos)
       else {
         val funDefFileScope: FileScope = pos match { case null => outerPos.fileScope case p => p.fileScope }
         val newScope: ValScope = defSiteValScope.extendSimple(argVal)
@@ -401,7 +401,7 @@ object Val{
     }
 
     def apply2(argVal1: Lazy, argVal2: Lazy, outerPos: Position)(implicit ev: EvalScope): Val = {
-      if(params.names.length != 2) apply(Array(argVal1, argVal2), null, outerPos)
+      if(params.symbols.length != 2) apply(Array(argVal1, argVal2), null, outerPos)
       else {
         val funDefFileScope: FileScope = pos match { case null => outerPos.fileScope case p => p.fileScope }
         val newScope: ValScope = defSiteValScope.extendSimple(argVal1, argVal2)
@@ -410,7 +410,7 @@ object Val{
     }
 
     def apply3(argVal1: Lazy, argVal2: Lazy, argVal3: Lazy, outerPos: Position)(implicit ev: EvalScope): Val = {
-      if(params.names.length != 3) apply(Array(argVal1, argVal2, argVal3), null, outerPos)
+      if(params.symbols.length != 3) apply(Array(argVal1, argVal2, argVal3), null, outerPos)
       else {
         val funDefFileScope: FileScope = pos match { case null => outerPos.fileScope case p => p.fileScope }
         val newScope: ValScope = defSiteValScope.extendSimple(argVal1, argVal2, argVal3)
@@ -420,7 +420,7 @@ object Val{
   }
 
   abstract class Builtin(paramNames: Array[String], defaults: Array[Expr] = null)
-    extends Func(null, ValScope.empty, Params(paramNames.toArray,
+    extends Func(null, ValScope.empty, Params(paramNames.toArray.map(new Symbol(_)),
       if(defaults == null) new Array[Expr](paramNames.length) else defaults)) {
 
     override final def evalDefault(expr: Expr, vs: ValScope, es: EvalScope): Val = expr.asInstanceOf[Val]
@@ -428,7 +428,7 @@ object Val{
     final def evalRhs(scope: ValScope, ev: EvalScope, fs: FileScope, pos: Position): Val = {
 //      if(!(new Throwable).getStackTrace.map(_.toString).mkString("\n").contains("StaticOptimizer"))
 //        println(s"----------- generic evalRhs in $this via ${pos} ${ev.prettyIndex(pos)}")
-      val args = new Array[Val](params.names.length)
+      val args = new Array[Val](params.symbols.length)
       var i = 0
       var j = scope.length - args.length
       while(i < args.length) {
@@ -441,11 +441,11 @@ object Val{
     def evalRhs(args: Array[Val], ev: EvalScope, pos: Position): Val
 
     override def apply1(argVal: Lazy, outerPos: Position)(implicit ev: EvalScope): Val =
-      if(params.names.length != 1) apply(Array(argVal), null, outerPos)
+      if(params.symbols.length != 1) apply(Array(argVal), null, outerPos)
       else evalRhs(Array(argVal.force), ev, outerPos)
 
     override def apply2(argVal1: Lazy, argVal2: Lazy, outerPos: Position)(implicit ev: EvalScope): Val =
-      if(params.names.length != 2) apply(Array(argVal1, argVal2), null, outerPos)
+      if(params.symbols.length != 2) apply(Array(argVal1, argVal2), null, outerPos)
       else evalRhs(Array(argVal1.force, argVal2.force), ev, outerPos)
 
     def specialize(args: Array[Expr]): (Builtin, Array[Expr]) = null
@@ -462,7 +462,7 @@ object Val{
       else super.apply(argVals, namedNames, outerPos)
 
     override def apply1(argVal: Lazy, outerPos: Position)(implicit ev: EvalScope): Val =
-      if(params.names.length == 1) evalRhs(argVal.force, ev, outerPos)
+      if(params.symbols.length == 1) evalRhs(argVal.force, ev, outerPos)
       else super.apply(Array(argVal), null, outerPos)
   }
 
@@ -478,7 +478,7 @@ object Val{
       else super.apply(argVals, namedNames, outerPos)
 
     override def apply2(argVal1: Lazy, argVal2: Lazy, outerPos: Position)(implicit ev: EvalScope): Val =
-      if(params.names.length == 2) evalRhs(argVal1.force, argVal2.force, ev, outerPos)
+      if(params.symbols.length == 2) evalRhs(argVal1.force, argVal2.force, ev, outerPos)
       else super.apply(Array(argVal1, argVal2), null, outerPos)
   }
 

@@ -91,7 +91,8 @@ abstract class Materializer {
         null,
         for((k, v) <- kvs.toArray)
           yield Member.Field(ev.emptyMaterializeFileScopePos, FieldName.Fixed(k), false, null, Visibility.Normal, toExpr(v)),
-        null
+        null,
+        new Symbol("self"), new Symbol("super")
       )
   }
 

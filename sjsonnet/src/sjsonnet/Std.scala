@@ -44,7 +44,7 @@ object Std {
         case Val.Str(_, s) => s.length
         case a: Val.Arr => a.length
         case o: Val.Obj => o.visibleKeyNames.length
-        case o: Val.Func => o.params.names.length
+        case o: Val.Func => o.params.symbols.length
         case x => throw new Error.Delegate("Cannot get length of " + x.prettyName)
       })
     override def specialize(args: Array[Expr]) = args match {
@@ -60,7 +60,7 @@ object Std {
       var i = 0
       val func = _func.asFunc
       var res = 0
-      if(func.isInstanceOf[Val.Builtin] || func.params.names.length != 1) {
+      if(func.isInstanceOf[Val.Builtin] || func.params.symbols.length != 1) {
         while(i < a.length) {
           if(func.apply1(a(i), p)(ev).isInstanceOf[Val.True]) res += 1
           i += 1
@@ -210,7 +210,7 @@ object Std {
       val a = arr.asArr.asLazyArray
       var i = 0
       val func = _func.asFunc
-      if(func.isInstanceOf[Val.Builtin] || func.params.names.length != 1) {
+      if(func.isInstanceOf[Val.Builtin] || func.params.symbols.length != 1) {
         while(i < a.length) {
           if(!func.apply1(a(i), p)(ev).isInstanceOf[Val.True]) {
             var b = new Array[Lazy](a.length-1)
